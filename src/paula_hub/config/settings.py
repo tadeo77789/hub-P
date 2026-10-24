@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from paula_hub.adapters.outbound.claude.assistant import DEFAULT_MODEL
+from paula_hub.adapters.outbound.ollama.assistant import DEFAULT_MODEL, DEFAULT_URL
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -45,8 +45,10 @@ def setup_logging(level: str, name: str) -> None:
 class Settings:
     rabbitmq_url: str
     agent_shared_secret: str
-    claude_model: str
-    claude_effort: str
+    ollama_url: str
+    ollama_model: str
+    ollama_timeout: float
+    ollama_keep_alive: str
     alexa_notify_url: str
     alexa_notify_secret: str
     long_task_seconds: float
@@ -71,14 +73,17 @@ class Settings:
             raise SettingsError(f"LOG_LEVEL must be one of {', '.join(LOG_LEVELS)}")
         try:
             long_task_seconds = float(os.environ.get("LONG_TASK_SECONDS") or 30)
+            ollama_timeout = float(os.environ.get("OLLAMA_TIMEOUT") or 60)
         except ValueError as exc:
-            raise SettingsError("LONG_TASK_SECONDS must be a number") from exc
+            raise SettingsError("LONG_TASK_SECONDS and OLLAMA_TIMEOUT must be numbers") from exc
 
         return cls(
             rabbitmq_url=os.environ.get("RABBITMQ_URL") or "amqp://paula:paula@localhost:5672/",
             agent_shared_secret=secret,
-            claude_model=os.environ.get("CLAUDE_MODEL") or DEFAULT_MODEL,
-            claude_effort=os.environ.get("CLAUDE_EFFORT") or "low",
+            ollama_url=os.environ.get("OLLAMA_URL") or DEFAULT_URL,
+            ollama_model=os.environ.get("OLLAMA_MODEL") or DEFAULT_MODEL,
+            ollama_timeout=ollama_timeout,
+            ollama_keep_alive=os.environ.get("OLLAMA_KEEP_ALIVE") or "30m",
             alexa_notify_url=alexa_url,
             alexa_notify_secret=alexa_secret,
             long_task_seconds=long_task_seconds,

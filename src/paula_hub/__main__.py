@@ -10,7 +10,7 @@ import time
 from pika.exceptions import AMQPError
 
 from paula_hub.adapters.outbound.alexa.notifier import AlexaNotifier, LogNotifier
-from paula_hub.adapters.outbound.claude.assistant import ClaudeAssistant
+from paula_hub.adapters.outbound.ollama.assistant import OllamaAssistant
 from paula_hub.adapters.rabbitmq import RabbitMqBroker
 from paula_hub.application.assistant_service import AssistantService
 from paula_hub.config.settings import Settings, SettingsError, log_dir, setup_logging
@@ -40,7 +40,12 @@ def main() -> int:
         else LogNotifier()
     )
     service = AssistantService(
-        ClaudeAssistant(model=settings.claude_model, effort=settings.claude_effort),
+        OllamaAssistant(
+            url=settings.ollama_url,
+            model=settings.ollama_model,
+            timeout=settings.ollama_timeout,
+            keep_alive=settings.ollama_keep_alive,
+        ),
         broker,
         notifier,
         long_task_seconds=settings.long_task_seconds,
