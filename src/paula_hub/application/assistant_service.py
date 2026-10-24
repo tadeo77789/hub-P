@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
+from paula_hub.application.sentences import SentenceSplitter
 from paula_hub.domain.commands import get_command
 from paula_hub.domain.conversation import AssistantTurn, ToolCall, ToolResult
 from paula_hub.domain.messages import (
@@ -121,13 +122,49 @@ class AssistantService:
         text: str | None = None,
         results: Sequence[ToolResult] = (),
     ) -> None:
+        # Spoken replies go out sentence by sentence, so the agent starts talking early.
+        splitter = SentenceSplitter() if self._speaks(order) else None
+
+        def on_text(piece: str) -> None:
+            for sentence in splitter.feed(piece):
+                self._send_partial(order, sentence)
+
         try:
-            turn = self._assistant.send(self._session_id, text=text, results=results)
+            turn = self._assistant.send(
+                self._session_id,
+                text=text,
+                results=results,
+                on_text=on_text if splitter else None,
+            )
         except AssistantError:
             log.exception("Assistant failed for order %s", order.id)
             self._reply_error(order, "No pude pensar una respuesta. Inténtalo de nuevo.")
             return
+        if splitter:
+            for sentence in splitter.flush():
+                self._send_partial(order, sentence)
         self._process(order, turn, round_)
+
+    @staticmethod
+    def _speaks(order: Order) -> bool:
+        return order.source in (Source.VOICE, Source.HOTKEY)
+
+    def _send_partial(self, order: Order, sentence: str) -> None:
+        try:
+            self._gateway.reply(
+                Result(
+                    id=order.id,
+                    status=Status.PENDING,
+                    response_text=sentence,
+                    speak=True,
+                    channel=_CHANNELS[order.source],
+                    robot_state=RobotState.SPEAKING,
+                    partial=True,
+                )
+            )
+        except Exception:
+            # A lost sentence is fine: the final result carries the whole text.
+            log.exception("Could not send partial reply")
 
     def _process(self, order: Order, turn: AssistantTurn, round_: int) -> None:
         if not turn.tool_calls:

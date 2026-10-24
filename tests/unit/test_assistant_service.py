@@ -20,16 +20,21 @@ from paula_hub.ports.outbound.assistant import AssistantError
 
 
 class FakeAssistant:
-    def __init__(self, *turns: AssistantTurn | Exception) -> None:
+    def __init__(self, *turns: AssistantTurn | Exception, stream: bool = False) -> None:
         self.turns = list(turns)
+        self.stream = stream
         self.calls: list[tuple[str | None, list[ToolResult]]] = []
         self.resets = 0
 
-    def send(self, session_id: str, *, text=None, results: Sequence[ToolResult] = ()):
+    def send(self, session_id: str, *, text=None, results: Sequence[ToolResult] = (), on_text=None):
         self.calls.append((text, list(results)))
         turn = self.turns.pop(0)
         if isinstance(turn, Exception):
             raise turn
+        if self.stream and on_text and turn.text:
+            half = len(turn.text) // 2
+            on_text(turn.text[:half])
+            on_text(turn.text[half:])
         return turn
 
     def reset(self, session_id: str) -> None:
@@ -309,3 +314,29 @@ def test_idle_reset_forgets_open_tool_calls(gateway, notifier):
 
     assert assistant.resets == 1
     assert assistant.calls[-1] == ("hola", [])
+
+
+def test_spoken_reply_streams_sentences_before_final(gateway, notifier):
+    text = "Hola, Ola. Hoy todo va bien en tu PC."
+    service = make_service(FakeAssistant(AssistantTurn(text), stream=True), gateway, notifier)
+    order = voice("hola")
+
+    service.handle_order(order)
+
+    partials = [r for r in gateway.replies if r.partial]
+    assert [p.response_text for p in partials] == ["Hola, Ola.", "Hoy todo va bien en tu PC."]
+    assert all(p.id == order.id and p.status is Status.PENDING for p in partials)
+    final = gateway.replies[-1]
+    assert not final.partial and final.response_text == text
+
+
+def test_chat_reply_is_not_streamed(gateway, notifier):
+    service = make_service(
+        FakeAssistant(AssistantTurn("Hola. ¿Qué tal todo?"), stream=True), gateway, notifier
+    )
+
+    service.handle_order(
+        Order(source=Source.CHAT, intent=Intent.CONVERSATION, payload={"text": "hola"})
+    )
+
+    assert [r.partial for r in gateway.replies] == [False]

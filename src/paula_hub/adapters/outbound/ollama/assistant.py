@@ -7,7 +7,7 @@ import logging
 import re
 import urllib.request
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any
 
 from paula_hub.domain.commands import WHITELIST
@@ -49,17 +49,54 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 Post = Callable[[str, dict[str, Any], float], dict[str, Any]]
+Stream = Callable[[str, dict[str, Any], float], Iterable[dict[str, Any]]]
 
 
-def http_post(url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
-    request = urllib.request.Request(
+def _request(url: str, payload: dict[str, Any]) -> urllib.request.Request:
+    return urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+
+
+def http_post(url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    with urllib.request.urlopen(_request(url, payload), timeout=timeout) as response:
         return json.load(response)
+
+
+def http_stream(url: str, payload: dict[str, Any], timeout: float) -> Iterator[dict[str, Any]]:
+    """Ollama streams one JSON object per line."""
+    with urllib.request.urlopen(_request(url, payload), timeout=timeout) as response:
+        for line in response:
+            if line.strip():
+                yield json.loads(line)
+
+
+def _without_think(on_text: Callable[[str], None]) -> Callable[[str], None]:
+    """Wrap a text callback so <think>...</think> content is never spoken."""
+    inside = False
+
+    def feed(piece: str) -> None:
+        nonlocal inside
+        visible = ""
+        while piece:
+            if inside:
+                end = piece.find("</think>")
+                if end < 0:
+                    break
+                piece, inside = piece[end + len("</think>") :], False
+            else:
+                start = piece.find("<think>")
+                if start < 0:
+                    visible, piece = visible + piece, ""
+                else:
+                    visible, piece, inside = visible + piece[:start], piece[start + 7 :], True
+        if visible:
+            on_text(visible)
+
+    return feed
 
 
 def _parse_args(raw: Any) -> dict[str, Any]:
@@ -87,12 +124,14 @@ class OllamaAssistant:
         timeout: float = 60.0,
         keep_alive: str = "30m",
         post: Post = http_post,
+        stream: Stream = http_stream,
     ) -> None:
         self._endpoint = url.rstrip("/") + "/api/chat"
         self._model = model
         self._timeout = timeout
         self._keep_alive = keep_alive
         self._post = post
+        self._stream = stream
         self._histories: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self._checkpoints: dict[str, int] = defaultdict(int)
         self._tool_names: dict[str, str] = {}
@@ -104,6 +143,7 @@ class OllamaAssistant:
         *,
         text: str | None = None,
         results: Sequence[ToolResult] = (),
+        on_text: Callable[[str], None] | None = None,
     ) -> AssistantTurn:
         if not text and not results:
             raise ValueError("send() needs text or tool results")
@@ -125,13 +165,15 @@ class OllamaAssistant:
             "model": self._model,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *history],
             "tools": TOOLS,
-            "stream": False,
+            "stream": on_text is not None,
             "think": False,  # Paula has to answer fast
             "keep_alive": self._keep_alive,
         }
         try:
-            response = self._post(self._endpoint, payload, self._timeout)
-            message = response["message"]
+            if on_text is None:
+                message = self._post(self._endpoint, payload, self._timeout)["message"]
+            else:
+                message = self._collect(payload, _without_think(on_text))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self._rewind(session_id)
             raise AssistantError(f"Ollama failed: {exc}") from exc
@@ -161,6 +203,21 @@ class OllamaAssistant:
         if not text_out and not calls:
             text_out = EMPTY_REPLY
         return AssistantTurn(text_out, calls)
+
+    def _collect(self, payload: dict[str, Any], on_text: Callable[[str], None]) -> dict:
+        """Read a streamed reply, handing text over as it arrives."""
+        content: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        for chunk in self._stream(self._endpoint, payload, self._timeout):
+            if "error" in chunk:
+                raise ValueError(chunk["error"])
+            message = chunk.get("message") or {}
+            piece = message.get("content") or ""
+            if piece:
+                content.append(piece)
+                on_text(piece)
+            tool_calls.extend(message.get("tool_calls") or [])
+        return {"role": "assistant", "content": "".join(content), "tool_calls": tool_calls}
 
     def reset(self, session_id: str) -> None:
         self._histories.pop(session_id, None)

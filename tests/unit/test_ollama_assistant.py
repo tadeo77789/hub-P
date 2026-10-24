@@ -146,3 +146,37 @@ def test_reset_forgets_pending_tool_names():
     assistant.reset("s")
 
     assert assistant._tool_names == {}
+
+
+def test_streaming_hands_over_text_and_hides_think():
+    chunks = [
+        {"message": {"content": "<think>x</think>Ho"}},
+        {"message": {"content": "la."}},
+        {"message": {"content": "", "tool_calls": [call("system_status", {})]}},
+        {"done": True},
+    ]
+    sent = []
+
+    def stream(url, payload, timeout):
+        sent.append(payload)
+        yield from chunks
+
+    pieces = []
+    assistant = OllamaAssistant(post=None, stream=stream)
+
+    turn = assistant.send("s", text="hola", on_text=pieces.append)
+
+    assert sent[0]["stream"] is True
+    assert "".join(pieces) == "Hola."
+    assert turn.text == "Hola."
+    assert [c.name for c in turn.tool_calls] == ["system_status"]
+
+
+def test_streaming_error_chunk_is_an_assistant_error():
+    def stream(url, payload, timeout):
+        yield {"error": "model not found"}
+
+    assistant = OllamaAssistant(post=None, stream=stream)
+
+    with pytest.raises(AssistantError):
+        assistant.send("s", text="hola", on_text=lambda piece: None)
