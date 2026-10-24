@@ -31,11 +31,11 @@ class Settings:
         if len(secret) < 32:
             raise SettingsError("AGENT_SHARED_SECRET must be at least 32 characters")
         return cls(
-            rabbitmq_url=os.environ.get("RABBITMQ_URL", "amqp://paula:paula@localhost:5672/"),
+            rabbitmq_url=os.environ.get("RABBITMQ_URL") or "amqp://paula:paula@localhost:5672/",
             agent_shared_secret=secret,
-            claude_model=os.environ.get("CLAUDE_MODEL", DEFAULT_MODEL),
-            claude_effort=os.environ.get("CLAUDE_EFFORT", "low"),
+            claude_model=os.environ.get("CLAUDE_MODEL") or DEFAULT_MODEL,
+            claude_effort=os.environ.get("CLAUDE_EFFORT") or "low",
             alexa_notify_url=os.environ.get("ALEXA_NOTIFY_URL", ""),
-            long_task_seconds=float(os.environ.get("LONG_TASK_SECONDS", "30")),
-            log_level=os.environ.get("LOG_LEVEL", "INFO"),
+            long_task_seconds=float(os.environ.get("LONG_TASK_SECONDS") or 30),
+            log_level=os.environ.get("LOG_LEVEL") or "INFO",
         )

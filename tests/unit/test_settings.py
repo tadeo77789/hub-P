@@ -27,3 +27,10 @@ def test_defaults(monkeypatch):
     assert settings.claude_effort == "low"
     assert settings.alexa_notify_url == ""
     assert settings.rabbitmq_url.startswith("amqp://")
+
+
+def test_empty_values_use_defaults(monkeypatch):
+    monkeypatch.setenv("AGENT_SHARED_SECRET", "x" * 32)
+    monkeypatch.setenv("CLAUDE_MODEL", "")
+
+    assert Settings.from_env().claude_model == "claude-opus-5-5"
