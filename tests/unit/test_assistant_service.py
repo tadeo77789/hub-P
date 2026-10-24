@@ -4,6 +4,7 @@ import pytest
 
 from paula_hub.application.assistant_service import CONFIRM_NO, CONFIRM_YES, AssistantService
 from paula_hub.domain.conversation import AssistantTurn, ToolCall, ToolResult
+from paula_hub.domain.knowledge import Passage
 from paula_hub.domain.memory import MemoryFact
 from paula_hub.domain.messages import (
     Action,
@@ -28,6 +29,7 @@ class FakeAssistant:
         self.calls: list[tuple[str | None, list[ToolResult]]] = []
         self.resets = 0
         self.contexts: list[list[str]] = []
+        self.references: list[list[str]] = []
 
     def send(
         self,
@@ -37,9 +39,11 @@ class FakeAssistant:
         results: Sequence[ToolResult] = (),
         on_text=None,
         context: Sequence[str] = (),
+        references: Sequence[str] = (),
     ):
         self.calls.append((text, list(results)))
         self.contexts.append(list(context))
+        self.references.append(list(references))
         turn = self.turns.pop(0)
         if isinstance(turn, Exception):
             raise turn
@@ -528,3 +532,53 @@ def test_facts_are_recalled_again_after_a_forget(gateway, notifier):
     service.handle_order(voice("olvida lo del rock"))
 
     assert assistant.contexts == [["A Ola le gusta el rock"], []]  # not the stale fact
+
+
+class FakeKnowledge:
+    def __init__(self, passages=()):
+        self.passages = list(passages)
+        self.notes = []
+
+    def search(self, query, limit=3):
+        return self.passages[:limit]
+
+    def learn(self, title, text):
+        self.notes.append((title, text))
+        return f"notas de Paula/{title}.md"
+
+
+def test_passages_are_passed_as_references(gateway, notifier):
+    assistant = FakeAssistant(AssistantTurn("Es separar núcleo y adaptadores."))
+    knowledge = FakeKnowledge([Passage("arquitectura.md", "Puertos y adaptadores")])
+    service = make_service(assistant, gateway, notifier, knowledge=knowledge)
+
+    service.handle_order(voice("¿qué es la arquitectura hexagonal?"))
+
+    assert assistant.references == [["[arquitectura.md]\nPuertos y adaptadores"]]
+
+
+def test_learn_runs_in_the_hub(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "learn", {"title": "CQRS", "text": "Separa lecturas"})]),
+        AssistantTurn("Aprendido."),
+    )
+    knowledge = FakeKnowledge()
+    service = make_service(assistant, gateway, notifier, knowledge=knowledge)
+
+    service.handle_order(voice("apréndete qué es CQRS: separa lecturas"))
+
+    assert knowledge.notes == [("CQRS", "Separa lecturas")]
+    assert gateway.actions == []
+    assert assistant.calls[1][1][0].content.startswith("Saved in the knowledge base")
+
+
+def test_learn_without_knowledge_base_reports_an_error(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "learn", {"title": "x", "text": "y"})]),
+        AssistantTurn("No puedo."),
+    )
+    service = make_service(assistant, gateway, notifier)
+
+    service.handle_order(voice("aprende esto"))
+
+    assert assistant.calls[1][1][0].is_error

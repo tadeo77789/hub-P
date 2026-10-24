@@ -42,6 +42,7 @@ def test_tools_cover_whitelist_and_memory():
         "remember",
         "forget",
         "list_memories",
+        "learn",
     }
 
 
@@ -235,3 +236,14 @@ def test_connection_dropped_mid_stream_is_an_assistant_error():
     with pytest.raises(AssistantError):
         assistant.send("s", text="hola", on_text=lambda piece: None)
     assert assistant._histories["s"] == []
+
+
+def test_passages_go_in_the_note_and_context_is_larger():
+    assistant, fake = make(reply("Es separar núcleo y adaptadores."))
+
+    assistant.send("s", text="¿qué es hexagonal?", references=["[arq.md] Puertos y adaptadores"])
+
+    _, payload = fake.requests[0]
+    assert "Puertos y adaptadores" in payload["messages"][1]["content"]
+    assert payload["messages"][0]["content"] == SYSTEM_PROMPT
+    assert payload["options"]["num_ctx"] == 6144
