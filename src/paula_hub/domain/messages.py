@@ -95,7 +95,11 @@ class Order:
 
 @dataclass(frozen=True)
 class Result:
-    """Reply to an order. `options` is only set when status is QUESTION."""
+    """Reply to an order. `options` is only set when status is QUESTION.
+
+    `partial` results carry one sentence of a reply that is still being generated,
+    so the agent can start speaking; the final result (`partial` false) follows.
+    """
 
     id: str
     status: Status
@@ -104,11 +108,14 @@ class Result:
     channel: Channel
     robot_state: RobotState
     options: list[str] | None = None
+    partial: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = _enum_values(asdict(self))
         if self.options is None:
             data.pop("options")
+        if not self.partial:
+            data.pop("partial")
         return data
 
     @classmethod
@@ -121,6 +128,7 @@ class Result:
             channel=Channel(data["channel"]),
             robot_state=RobotState(data["robot_state"]),
             options=data.get("options"),
+            partial=bool(data.get("partial", False)),
         )
 
 

@@ -40,3 +40,13 @@ def test_action_and_event_round_trip():
 
     assert Action.from_dict(action.to_dict()) == action
     assert Event.from_dict(event.to_dict()) == event
+
+
+def test_partial_flag_round_trips_and_is_omitted_when_false():
+    partial = Result(
+        "1", Status.PENDING, "Hola.", True, Channel.PC, RobotState.SPEAKING, partial=True
+    )
+    final = Result("1", Status.OK, "Hola.", True, Channel.PC, RobotState.SPEAKING)
+
+    assert Result.from_dict(partial.to_dict()) == partial
+    assert "partial" not in final.to_dict()
