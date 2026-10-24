@@ -91,6 +91,7 @@ def main() -> int:
                 log_dir().parent / "knowledge.sqlite3",
                 embedder(60.0),  # indexing a long PDF sends big batches
                 recall_embed=embedder(3.0),
+                model=settings.memory_embed_model,
             )
             threading.Thread(
                 target=keep_indexed, args=(knowledge,), name="knowledge-sync", daemon=True

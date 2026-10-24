@@ -132,6 +132,11 @@ def split_passages(text: str, limit: int = CHUNK_CHARS) -> list[str]:
     return passages
 
 
+def _is_link(path: Path) -> bool:
+    # Path.is_junction only exists since Python 3.12.
+    return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+
+
 def _slug(title: str) -> str:
     plain = unicodedata.normalize("NFKD", title.casefold())
     plain = "".join(c for c in plain if not unicodedata.combining(c))
@@ -146,7 +151,13 @@ def _normalized(vector) -> np.ndarray:
 
 class FolderKnowledge:
     def __init__(
-        self, folder: Path, db_path: Path, embed: Embed, *, recall_embed: Embed | None = None
+        self,
+        folder: Path,
+        db_path: Path,
+        embed: Embed,
+        *,
+        recall_embed: Embed | None = None,
+        model: str = "",
     ) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         self.folder = folder
@@ -166,7 +177,17 @@ class FolderKnowledge:
             "CREATE TABLE IF NOT EXISTS passages ("
             " source TEXT NOT NULL, idx INTEGER NOT NULL, text TEXT NOT NULL,"
             " embedding BLOB NOT NULL, PRIMARY KEY (source, idx));"
+            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
         )
+        stored = self._db.execute("SELECT value FROM meta WHERE key = 'model'").fetchone()
+        if model and stored and stored[0] != model:
+            # Vectors from another embedding model cannot be compared: index everything again.
+            log.info("Embedding model changed (%s -> %s); re-indexing knowledge", stored[0], model)
+            self._db.executescript("DELETE FROM passages; DELETE FROM files;")
+        if model:
+            self._db.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?)", (model,)
+            )
         self._db.commit()
 
     # Indexing
@@ -177,13 +198,7 @@ class FolderKnowledge:
             here = Path(root)
             depth = len(here.relative_to(self.folder).parts)
             # Never follow junctions or symlinks (loops, other drives), nor go too deep.
-            dirs[:] = [
-                d
-                for d in dirs
-                if depth < MAX_DEPTH
-                and not (here / d).is_symlink()
-                and not (here / d).is_junction()
-            ]
+            dirs[:] = [d for d in dirs if depth < MAX_DEPTH and not _is_link(here / d)]
             for name in names:
                 path = here / name
                 if path.suffix.lower() in SUFFIXES and path.stem.lower() not in IGNORED_NAMES:
@@ -307,7 +322,7 @@ class FolderKnowledge:
         source = path.relative_to(self.folder).as_posix()
         try:
             self._index(source, path, stat.st_mtime, stat.st_size)
-        except (MemoryUnavailable, sqlite3.Error) as exc:
+        except Exception as exc:
             # Reported as failed, so leave no file behind that would be indexed later.
             path.unlink(missing_ok=True)
             raise MemoryUnavailable(f"Could not index the note: {exc}") from exc

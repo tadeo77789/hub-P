@@ -200,3 +200,14 @@ def test_folder_readme_is_not_knowledge(kb):
     write(kb, "git.txt", "Git flow")
 
     assert kb.sync().indexed == ["git.txt"]
+
+
+def test_changing_the_embedding_model_reindexes(tmp_path):
+    folder, db = tmp_path / "K", tmp_path / "k.sqlite3"
+    kb = FolderKnowledge(folder, db, fake_embed, model="modelo-a")
+    write(kb, "git.txt", "Git flow")
+    kb.sync()
+
+    again = FolderKnowledge(folder, db, fake_embed, model="modelo-b")
+
+    assert again.sync().indexed == ["git.txt"]
