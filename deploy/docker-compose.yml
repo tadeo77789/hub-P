@@ -1,0 +1,19 @@
+# Local RabbitMQ for Paula Port. Ports bind to localhost only: nothing is exposed
+# to the network; remote access goes through Tailscale.
+#   docker compose -f deploy/docker-compose.yml up -d
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: paula-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-paula}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-paula}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+volumes:
+  rabbitmq-data:
