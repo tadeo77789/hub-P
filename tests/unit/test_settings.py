@@ -31,7 +31,7 @@ def test_defaults(monkeypatch):
 
     settings = Settings.from_env()
 
-    assert settings.ollama_model == "qwen3:4b"
+    assert settings.ollama_model == "qwen3:4b-instruct"
     assert settings.ollama_url == "http://localhost:11434"
     assert settings.alexa_notify_url == ""
     assert settings.rabbitmq_url.startswith("amqp://")
@@ -41,7 +41,7 @@ def test_empty_values_use_defaults(monkeypatch):
     monkeypatch.setenv("AGENT_SHARED_SECRET", "x" * 32)
     monkeypatch.setenv("OLLAMA_MODEL", "")
 
-    assert Settings.from_env().ollama_model == "qwen3:4b"
+    assert Settings.from_env().ollama_model == "qwen3:4b-instruct"
 
 
 @pytest.mark.parametrize(
