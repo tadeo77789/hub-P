@@ -515,3 +515,16 @@ def test_ambiguous_forget_asks_instead_of_deleting(gateway, notifier):
 
     [result] = assistant.calls[1][1]
     assert result.content.startswith("Nothing deleted: 3 facts match")
+
+
+def test_facts_are_recalled_again_after_a_forget(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "forget", {"about": "rock"})]),
+        AssistantTurn("Olvidado."),
+    )
+    memory = FakeMemory(["A Ola le gusta el rock"])
+    service = make_service(assistant, gateway, notifier, memory=memory)
+
+    service.handle_order(voice("olvida lo del rock"))
+
+    assert assistant.contexts == [["A Ola le gusta el rock"], []]  # not the stale fact

@@ -172,6 +172,9 @@ class AssistantService:
         if self._memory is None:
             return ToolResult(call.id, "Long-term memory is turned off.", is_error=True)
         try:
+            if call.name in ("remember", "forget"):
+                # The next round must not see the facts as they were before this change.
+                self._recalled = ("", [])
             if call.name == "remember":
                 fact = self._memory.remember(str(call.args.get("fact", "")))
                 return ToolResult(call.id, f"Saved: {fact.text}")
