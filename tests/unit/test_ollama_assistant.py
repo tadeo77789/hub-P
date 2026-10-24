@@ -46,7 +46,7 @@ def test_text_reply_uses_qwen_without_thinking():
     assert turn.text == "Hola, Ola."
     url, payload = fake.requests[0]
     assert url == "http://localhost:11434/api/chat"
-    assert payload["model"] == "qwen3:4b"
+    assert payload["model"] == "qwen3:4b-instruct"
     assert payload["think"] is False
     assert payload["stream"] is False
     assert payload["messages"][0]["role"] == "system"
@@ -57,6 +57,26 @@ def test_think_tags_are_stripped():
     assistant, _ = make(reply("<think>pensando…</think>\nListo."))
 
     assert assistant.send("s", text="hola").text == "Listo."
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("Hola, Ola.", "Hola, Ola."),
+        ("<think>a</think>Hola<think>b</think> Ola", "Hola Ola"),
+        ("Hola <think>x</think>Ola", "Hola Ola"),
+    ],
+)
+def test_think_blocks_never_eat_visible_text(content, expected):
+    assistant, _ = make(reply(content))
+
+    assert assistant.send("s", text="hola").text == expected
+
+
+def test_reasoning_without_opening_tag_is_stripped():
+    assistant, _ = make(reply("Okay, Ola says hello.\n</think>\n\n¡Hola!"))
+
+    assert assistant.send("s", text="hola").text == "¡Hola!"
 
 
 def test_tool_call_then_result_continue_history():

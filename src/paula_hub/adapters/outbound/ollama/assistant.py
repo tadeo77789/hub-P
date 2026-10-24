@@ -18,8 +18,10 @@ from paula_hub.ports.outbound.assistant import AssistantError
 log = logging.getLogger(__name__)
 
 DEFAULT_URL = "http://localhost:11434"
-DEFAULT_MODEL = "qwen3:4b"
-THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+DEFAULT_MODEL = "qwen3:4b-instruct"
+# Thinking-only models (qwen3:4b is Qwen3-4B-Thinking-2507) ignore think=false and
+# omit the opening tag, so a reply that starts with reasoning is cut at </think>.
+THINK_BLOCK = re.compile(r"<think>.*?</think>|^(?:(?!<think>).)*?</think>", re.DOTALL)
 # User-facing, Spanish: used when the model returns nothing to say.
 EMPTY_REPLY = "Perdona, no supe qué responder. ¿Me lo dices de otra forma?"
 
