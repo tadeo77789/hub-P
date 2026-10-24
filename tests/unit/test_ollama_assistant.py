@@ -131,3 +131,18 @@ def test_reset_clears_history():
     assistant.send("s", text="dos")
 
     assert len(fake.requests[1][1]["messages"]) == 2
+
+
+def test_empty_reply_gets_a_fallback_text():
+    assistant, _ = make(reply("<think>hmm</think>"))
+
+    assert assistant.send("s", text="hola").text.startswith("Perdona")
+
+
+def test_reset_forgets_pending_tool_names():
+    assistant, _ = make(reply(tool_calls=[call("system_status", {})]))
+    assistant.send("s", text="estado")
+
+    assistant.reset("s")
+
+    assert assistant._tool_names == {}
