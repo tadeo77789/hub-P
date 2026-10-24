@@ -1,7 +1,7 @@
 """RabbitMQ names shared by hub and agent. Mirrored in pc-agent (paula_agent/messaging/topology.py).
 
-agent â”€â”€orderâ”€â”€â–¶ hub.orders     hub â”€â”€resultâ”€â”€â–¶ agent.results
-agent â”€â”€eventâ”€â”€â–¶ hub.events     hub â”€â”€actionâ”€â”€â–¶ agent.actions
+agent ──order──▶ hub.orders     hub ──result──▶ agent.results
+agent ──event──▶ hub.events     hub ──action──▶ agent.actions
 """
 
 EXCHANGE = "paula"

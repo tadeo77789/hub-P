@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from collections import deque
+from pathlib import Path
 
 SIGNATURE_HEADER = "x-paula-signature"
 SENT_AT_HEADER = "x-paula-sent-at"
@@ -53,3 +55,40 @@ def verify(
         raise InvalidSignature("bad timestamp") from exc
     if age > max_age_seconds or age < -300:
         raise InvalidSignature("message too old or from the future")
+
+
+class SeenIds:
+    """Recent message ids, so a captured signed message cannot be replayed.
+
+    The signature window is long (queued actions), so the id is what makes a
+    message single-use. With a path, the ids survive restarts.
+    """
+
+    def __init__(self, limit: int = 2000, path: Path | None = None) -> None:
+        self._limit = limit
+        self._path = path
+        self._order: deque[str] = deque()
+        self._ids: set[str] = set()
+        if path is not None and path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
+                self._remember(line.strip())
+
+    def add(self, message_id: str | None) -> bool:
+        """Record the id; False if it was already seen."""
+        if not message_id:
+            return True
+        if message_id in self._ids:
+            return False
+        self._remember(message_id)
+        if self._path is not None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text("\n".join(self._order) + "\n", encoding="utf-8")
+        return True
+
+    def _remember(self, message_id: str) -> None:
+        if not message_id or message_id in self._ids:
+            return
+        self._order.append(message_id)
+        self._ids.add(message_id)
+        while len(self._order) > self._limit:
+            self._ids.discard(self._order.popleft())
