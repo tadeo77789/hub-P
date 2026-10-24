@@ -128,16 +128,42 @@ def _without_think(on_text: Callable[[str], None]) -> Callable[[str], None]:
 def _with_memory(
     history: list[dict[str, Any]], context: Sequence[str], references: Sequence[str] = ()
 ) -> list[dict]:
-    parts = []
+    notes = []
     if context:
-        parts.append(MEMORY_HEADER + "\n".join(f"- {f}" for f in context))
+        facts = "\n".join(f"- {f}" for f in context)
+        notes.append({"role": "system", "content": MEMORY_HEADER + facts})
     if references:
-        parts.append(REFERENCES_HEADER + "\n\n".join(references))
-    if not parts:
+        # A user-role block, not a system message: a downloaded document must not carry
+        # system authority.
+        body = "\n\n".join(references)
+        notes.append(
+            {"role": "user", "content": f"{REFERENCES_HEADER}<documentos>\n{body}\n</documentos>"}
+        )
+    if not notes:
         return history
-    note = {"role": "system", "content": "\n\n".join(parts)}
     last_user = max((i for i, m in enumerate(history) if m["role"] == "user"), default=0)
-    return [*history[:last_user], note, *history[last_user:]]
+    return [*history[:last_user], *notes, *history[last_user:]]
+
+
+def _size(message: dict[str, Any]) -> int:
+    return len(str(message.get("content", ""))) + len(str(message.get("tool_calls", "")))
+
+
+def _trimmed(history: list[dict[str, Any]], budget: int) -> int:
+    """How many of the oldest messages to drop so the history fits in `budget` chars.
+
+    Cuts only right before a user message, so an assistant turn and its tool results are
+    never separated (Ollama would otherwise truncate silently, wherever it falls). The
+    latest user message always stays.
+    """
+    total = sum(_size(m) for m in history)
+    dropped = 0
+    for start in [i for i, m in enumerate(history) if m["role"] == "user"][1:]:
+        if total <= budget:
+            break
+        total -= sum(_size(m) for m in history[dropped:start])
+        dropped = start
+    return dropped
 
 
 def _parse_args(raw: Any) -> dict[str, Any]:
@@ -173,6 +199,9 @@ class OllamaAssistant:
         self._timeout = timeout
         self._keep_alive = keep_alive
         self._num_ctx = num_ctx
+        # About 4 characters per token; half the window is left for the system prompt,
+        # tools, recalled facts and passages, and the reply.
+        self._history_chars = num_ctx * 2
         self._post = post
         self._stream = stream
         self._histories: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -205,6 +234,10 @@ class OllamaAssistant:
             )
         if text:
             history.append({"role": "user", "content": text})
+        drop = _trimmed(history, self._history_chars)
+        if drop:
+            del history[:drop]
+            self._checkpoints[session_id] = max(0, self._checkpoints[session_id] - drop)
 
         payload = {
             "model": self._model,

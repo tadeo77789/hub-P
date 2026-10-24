@@ -133,3 +133,70 @@ def test_reads_pdf(kb, tmp_path):
     kb.sync()
 
     assert "Docker" in kb.search("docker")[0].text
+
+
+def test_heading_without_blank_line_and_hash_inside_code():
+    text = (
+        "# Guía\n## Docker\nSirve para contenedores.\n\n```\nRUN echo hola\n\n# comentario\n```\n"
+    )
+
+    passages = split_passages(text)
+
+    assert passages[0].startswith("Guía > Docker\nSirve para contenedores.")
+    assert all("comentario" != p.split("\n")[0] for p in passages)
+    assert any("# comentario" in p and "RUN echo hola" in p for p in passages)
+
+
+def test_huge_paragraph_is_split_quickly():
+    import time
+
+    start = time.perf_counter()
+    passages = split_passages("Una frase. " * 200_000)
+
+    assert time.perf_counter() - start < 2
+    assert all(len(p) <= 900 for p in passages)
+
+
+def test_two_notes_with_the_same_title_never_overwrite(kb):
+    first = kb.learn("Docker", "uno")
+    second = kb.learn("Docker", "dos")
+
+    assert first != second
+    assert (kb.folder / first).read_text(encoding="utf-8").endswith("uno\n")
+
+
+def test_failed_note_leaves_no_file(tmp_path):
+    from paula_hub.ports.outbound.memory import MemoryUnavailable
+
+    def down(texts):
+        raise MemoryUnavailable("ollama down")
+
+    kb = FolderKnowledge(tmp_path / "K", tmp_path / "k.sqlite3", down)
+
+    with pytest.raises(MemoryUnavailable):
+        kb.learn("Docker", "texto")
+
+    assert not list((tmp_path / "K").rglob("*.md"))
+
+
+def test_failed_file_is_not_retried_until_it_changes(kb, monkeypatch):
+    path = write(kb, "roto.pdf", "no es un pdf")
+    calls = []
+    import paula_hub.adapters.outbound.memory.knowledge as module
+
+    real = module.read_text
+    monkeypatch.setattr(module, "read_text", lambda p: calls.append(p) or real(p))
+
+    assert kb.sync().failed == ["roto.pdf"]
+    assert kb.sync().failed == []  # skipped, not re-parsed
+    assert len(calls) == 1
+    path.write_text("ahora tampoco", encoding="utf-8")
+    os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 10))
+    assert kb.sync().failed == ["roto.pdf"]
+
+
+def test_folder_readme_is_not_knowledge(kb):
+    write(kb, "LEEME.txt", "Carpeta de conocimiento de Paula")
+    write(kb, "git.txt", "Git flow")
+
+    assert kb.sync().indexed == ["git.txt"]

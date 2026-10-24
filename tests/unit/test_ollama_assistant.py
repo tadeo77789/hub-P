@@ -247,3 +247,34 @@ def test_passages_go_in_the_note_and_context_is_larger():
     assert "Puertos y adaptadores" in payload["messages"][1]["content"]
     assert payload["messages"][0]["content"] == SYSTEM_PROMPT
     assert payload["options"]["num_ctx"] == 6144
+
+
+def test_long_history_is_trimmed_at_a_user_message():
+    from paula_hub.adapters.outbound.ollama.assistant import _trimmed
+
+    history = [
+        {"role": "user", "content": "a" * 100},
+        {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "x"}}]},
+        {"role": "tool", "content": "b" * 100},
+        {"role": "assistant", "content": "c" * 100},
+        {"role": "user", "content": "d" * 100},
+        {"role": "assistant", "content": "e" * 100},
+        {"role": "user", "content": "f" * 10},
+    ]
+
+    assert _trimmed(history, 10_000) == 0
+    assert _trimmed(history, 250) == 4  # drops the first exchange, tool pair included
+    assert _trimmed(history, 1) == 6  # never the latest user message
+
+
+def test_send_trims_old_turns_and_keeps_the_checkpoint_valid():
+    assistant, fake = make(*[reply("x" * 400) for _ in range(30)])
+    assistant._history_chars = 2000
+
+    for i in range(30):
+        assistant.send("s", text=f"pregunta {i}")
+
+    messages = fake.requests[-1][1]["messages"]
+    assert messages[1]["role"] == "user"
+    assert sum(len(m["content"]) for m in messages[1:]) <= 2000 + 500
+    assert assistant._checkpoints["s"] <= len(assistant._histories["s"])
