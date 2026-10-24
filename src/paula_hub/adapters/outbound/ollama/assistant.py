@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 DEFAULT_URL = "http://localhost:11434"
 DEFAULT_MODEL = "qwen3:4b"
 THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+# User-facing, Spanish: used when the model returns nothing to say.
+EMPTY_REPLY = "Perdona, no supe qué responder. ¿Me lo dices de otra forma?"
 
 SYSTEM_PROMPT = """\
 You are Paula (also called Paula Port), a personal assistant that lives on Ola's Windows PC.
@@ -156,11 +158,16 @@ class OllamaAssistant:
         if not calls:
             self._checkpoints[session_id] = len(history)
         text_out = THINK_BLOCK.sub("", message.get("content") or "").strip()
+        if not text_out and not calls:
+            text_out = EMPTY_REPLY
         return AssistantTurn(text_out, calls)
 
     def reset(self, session_id: str) -> None:
         self._histories.pop(session_id, None)
         self._checkpoints.pop(session_id, None)
+        self._tool_names.clear()
 
     def _rewind(self, session_id: str) -> None:
         del self._histories[session_id][self._checkpoints[session_id] :]
+        # The checkpoint has no open tool calls, so no pending name is still valid.
+        self._tool_names.clear()

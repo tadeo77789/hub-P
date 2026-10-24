@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import time
 from collections import deque
 from pathlib import Path
@@ -82,7 +83,10 @@ class SeenIds:
         self._remember(message_id)
         if self._path is not None:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text("\n".join(self._order) + "\n", encoding="utf-8")
+            # Atomic: a crash mid-write must not wipe the replay history.
+            tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+            tmp.write_text("\n".join(self._order) + "\n", encoding="utf-8")
+            os.replace(tmp, self._path)
         return True
 
     def _remember(self, message_id: str) -> None:

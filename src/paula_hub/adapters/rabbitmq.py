@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 import pika
 from pika.adapters.blocking_connection import BlockingChannel
@@ -23,12 +24,13 @@ log = logging.getLogger(__name__)
 class RabbitMqBroker:
     """Implements AgentGatewayPort and drives a MessageHandler."""
 
-    def __init__(self, url: str, secret: str) -> None:
+    def __init__(self, url: str, secret: str, *, seen_path: Path | None = None) -> None:
         self._params = pika.URLParameters(url)
         # Model calls block the consumer; keep the heartbeat well above their timeout.
         self._params.heartbeat = 600
         self._secret = secret
-        self._seen = SeenIds()
+        # Persisted: a restart must not reopen the door to replayed orders.
+        self._seen = SeenIds(limit=10_000, path=seen_path)
         self._connection: pika.BlockingConnection | None = None
         self._channel: BlockingChannel | None = None
 

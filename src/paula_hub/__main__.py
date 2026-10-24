@@ -33,7 +33,11 @@ def main() -> int:
 
     setup_logging(settings.log_level, "hub")
 
-    broker = RabbitMqBroker(settings.rabbitmq_url, settings.agent_shared_secret)
+    broker = RabbitMqBroker(
+        settings.rabbitmq_url,
+        settings.agent_shared_secret,
+        seen_path=log_dir().parent / "hub_seen_ids.txt",
+    )
     notifier = (
         AlexaNotifier(settings.alexa_notify_url, settings.alexa_notify_secret)
         if settings.alexa_notify_url
