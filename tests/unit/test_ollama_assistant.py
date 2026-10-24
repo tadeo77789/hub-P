@@ -180,3 +180,17 @@ def test_streaming_error_chunk_is_an_assistant_error():
 
     with pytest.raises(AssistantError):
         assistant.send("s", text="hola", on_text=lambda piece: None)
+
+
+def test_connection_dropped_mid_stream_is_an_assistant_error():
+    import http.client
+
+    def stream(url, payload, timeout):
+        yield {"message": {"content": "Hola"}}
+        raise http.client.IncompleteRead(b"")
+
+    assistant = OllamaAssistant(post=None, stream=stream)
+
+    with pytest.raises(AssistantError):
+        assistant.send("s", text="hola", on_text=lambda piece: None)
+    assert assistant._histories["s"] == []

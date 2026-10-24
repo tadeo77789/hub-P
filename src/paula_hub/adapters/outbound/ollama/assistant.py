@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import re
@@ -174,7 +175,7 @@ class OllamaAssistant:
                 message = self._post(self._endpoint, payload, self._timeout)["message"]
             else:
                 message = self._collect(payload, _without_think(on_text))
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+        except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError) as exc:
             self._rewind(session_id)
             raise AssistantError(f"Ollama failed: {exc}") from exc
 
