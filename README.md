@@ -1,6 +1,6 @@
 # Paula Port — Hub
 
-Hexagonal core of Paula Port. It receives orders from the PC agent (and Alexa), resolves the intent with the Claude API and publishes actions, replies and alerts through RabbitMQ.
+Hexagonal core of Paula Port. It receives orders from the PC agent (and Alexa), resolves the intent with a local model (Qwen in Ollama) and publishes actions, replies and alerts through RabbitMQ.
 
 ## Layout
 
@@ -13,7 +13,7 @@ src/paula_hub/
 │   └── outbound/    # interfaces the core calls out through
 ├── adapters/
 │   ├── inbound/     # rabbitmq (orders from pc-agent), alexa
-│   └── outbound/    # claude, rabbitmq (actions to pc-agent), alexa (alerts)
+│   └── outbound/    # ollama, rabbitmq (actions to pc-agent), alexa (alerts)
 └── config/
 alexa-skill/         # Alexa Custom Skill + AWS Lambda for notifications
 tests/               # unit/, integration/
@@ -24,9 +24,10 @@ Dependency rule: `adapters → application / ports → domain`. `domain/` never 
 
 ## Setup
 
-Requires Python 3.11+, RabbitMQ and Tailscale.
+Requires Python 3.11+, RabbitMQ and [Ollama](https://ollama.com) with the model pulled.
 
 ```bash
+ollama pull qwen3:4b            # about 2.5 GB, runs on the GPU
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
@@ -42,11 +43,11 @@ Start at logon: `powershell -ExecutionPolicy Bypass -File scripts\install-startu
 
 ## How it works
 
-- Orders arrive on `hub.orders`; the core sends the text to Claude (`claude-opus-5-5`, low effort) with the command whitelist as tools.
+- Orders arrive on `hub.orders`; the core sends the text to Qwen (`qwen3:4b` in Ollama, thinking off for speed) with the command whitelist as tools. Everything runs on the PC; nothing goes to a cloud model.
 - Tool calls become signed `Action` messages on `agent.actions`. Destructive ones (`shutdown_pc`) first return a `question` result with Yes / No options and only run after a `confirm` order.
-- The agent reports each action on `hub.events`; the core feeds the outcome back to Claude and replies on `agent.results`.
+- The agent reports each action on `hub.events`; the core feeds the outcome back to the model and replies on `agent.results`.
 - Actions that take longer than `LONG_TASK_SECONDS`, and replies to Alexa orders, also go to Alexa (`alexa-skill/`).
-- Refusals and fallbacks: requests opt into server-side fallback (`fallbacks: "default"`); a refusal returns a short fixed reply.
+- If Ollama is down or slow (`OLLAMA_TIMEOUT`), the agent gets an error result and the robot turns angry.
 
 ## Contributing
 

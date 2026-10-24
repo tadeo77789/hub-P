@@ -25,7 +25,7 @@ class RabbitMqBroker:
 
     def __init__(self, url: str, secret: str) -> None:
         self._params = pika.URLParameters(url)
-        # Claude calls block the consumer; keep the heartbeat well above them.
+        # Model calls block the consumer; keep the heartbeat well above their timeout.
         self._params.heartbeat = 600
         self._secret = secret
         self._seen = SeenIds()

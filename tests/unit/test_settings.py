@@ -9,7 +9,7 @@ def no_dotenv(monkeypatch):
     monkeypatch.setattr(settings_module, "load_dotenv", lambda: None)
     for name in (
         "AGENT_SHARED_SECRET",
-        "CLAUDE_MODEL",
+        "OLLAMA_MODEL",
         "ALEXA_NOTIFY_URL",
         "ALEXA_NOTIFY_SECRET",
         "RABBITMQ_URL",
@@ -31,17 +31,17 @@ def test_defaults(monkeypatch):
 
     settings = Settings.from_env()
 
-    assert settings.claude_model == "claude-opus-5-5"
-    assert settings.claude_effort == "low"
+    assert settings.ollama_model == "qwen3:4b"
+    assert settings.ollama_url == "http://localhost:11434"
     assert settings.alexa_notify_url == ""
     assert settings.rabbitmq_url.startswith("amqp://")
 
 
 def test_empty_values_use_defaults(monkeypatch):
     monkeypatch.setenv("AGENT_SHARED_SECRET", "x" * 32)
-    monkeypatch.setenv("CLAUDE_MODEL", "")
+    monkeypatch.setenv("OLLAMA_MODEL", "")
 
-    assert Settings.from_env().claude_model == "claude-opus-5-5"
+    assert Settings.from_env().ollama_model == "qwen3:4b"
 
 
 @pytest.mark.parametrize(

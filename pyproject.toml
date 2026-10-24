@@ -9,7 +9,6 @@ description = "Paula Port hub: hexagonal core that turns orders into actions, re
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic",
     "pika",
     "python-dotenv",
 ]
