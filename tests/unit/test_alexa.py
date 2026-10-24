@@ -9,7 +9,7 @@ from paula_hub.adapters.outbound.alexa.notifier import AlexaNotifier
 from paula_hub.adapters.signing import sign, verify
 from paula_hub.domain.messages import Alert
 
-SECRET = "s3cret"
+SECRET = "alexa-secret-0123456789-0123456789"
 LAMBDA = Path(__file__).parents[2] / "alexa-skill" / "lambda" / "lambda_function.py"
 
 
@@ -54,7 +54,7 @@ def test_notifier_swallows_connection_errors():
 
 
 def test_lambda_rejects_unsigned_request(monkeypatch):
-    monkeypatch.setenv("AGENT_SHARED_SECRET", SECRET)
+    monkeypatch.setenv("ALEXA_NOTIFY_SECRET", SECRET)
     module = load_lambda()
 
     response = module.lambda_handler({"body": "{}", "headers": {}}, None)
@@ -63,7 +63,7 @@ def test_lambda_rejects_unsigned_request(monkeypatch):
 
 
 def test_lambda_builds_message_alert(monkeypatch):
-    monkeypatch.setenv("AGENT_SHARED_SECRET", SECRET)
+    monkeypatch.setenv("ALEXA_NOTIFY_SECRET", SECRET)
     module = load_lambda()
     body = json.dumps(Alert("Paula", "Listo").to_dict()).encode()
     sent = {}
@@ -92,3 +92,36 @@ def test_lambda_builds_message_alert(monkeypatch):
     event = sent["data"]["event"]
     assert event["name"] == "AMAZON.MessageAlert.Activated"
     assert event["payload"]["messageGroup"]["creator"]["name"] == "Paula"
+
+
+def test_lambda_rejects_when_secret_missing(monkeypatch):
+    monkeypatch.delenv("ALEXA_NOTIFY_SECRET", raising=False)
+    module = load_lambda()
+    body = b"{}"
+
+    response = module.lambda_handler({"body": "{}", "headers": sign("x" * 40, body)}, None)
+
+    assert response["statusCode"] == 401
+
+
+def test_lambda_answers_alexa_requests(monkeypatch):
+    monkeypatch.setenv("ALEXA_SKILL_ID", "amzn1.ask.skill.paula")
+    module = load_lambda()
+    envelope = {
+        "request": {"type": "LaunchRequest"},
+        "context": {"System": {"application": {"applicationId": "amzn1.ask.skill.paula"}}},
+    }
+
+    response = module.lambda_handler(envelope, None)
+
+    assert response["version"] == "1.0"
+    assert response["response"]["shouldEndSession"] is True
+
+
+def test_notifier_swallows_dropped_connections(monkeypatch):
+    def drop(*args, **kwargs):
+        raise ConnectionResetError("remote closed")
+
+    monkeypatch.setattr("urllib.request.urlopen", drop)
+
+    AlexaNotifier("http://example.invalid", SECRET).notify(Alert("t", "m"))

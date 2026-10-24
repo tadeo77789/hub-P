@@ -1,11 +1,12 @@
 """AWS Lambda behind a Function URL that turns hub alerts into Alexa notifications.
 
 Environment variables:
-  AGENT_SHARED_SECRET    same secret as the hub, to verify the request signature
+  ALEXA_NOTIFY_SECRET    same value as ALEXA_NOTIFY_SECRET in the hub; never the agent secret
   ALEXA_CLIENT_ID        skill's Login with Amazon client id (Alexa developer console > Permissions)
   ALEXA_CLIENT_SECRET    skill's client secret
   ALEXA_EVENTS_STAGE     "development" (default) or "live"
   ALEXA_API_ENDPOINT     defaults to https://api.amazonalexa.com (NA region)
+  ALEXA_SKILL_ID         optional; rejects Alexa requests from other skills
 
 Standard library only, so it deploys as a single file.
 """
@@ -28,7 +29,9 @@ MAX_AGE_SECONDS = 300
 
 
 def _verify(headers: dict[str, str], body: bytes) -> bool:
-    secret = os.environ["AGENT_SHARED_SECRET"].encode()
+    secret = os.environ.get("ALEXA_NOTIFY_SECRET", "").encode()
+    if len(secret) < 32:
+        return False
     signature = headers.get("x-paula-signature", "")
     sent_at = headers.get("x-paula-sent-at", "")
     expected = hmac.new(secret, sent_at.encode() + b"." + body, hashlib.sha256).hexdigest()
@@ -75,7 +78,25 @@ def _proactive_event(alert: dict) -> dict:
     }
 
 
+def _alexa_response(event: dict) -> dict:
+    """Minimal reply to requests from Alexa itself (launch, subscription events)."""
+    expected = os.environ.get("ALEXA_SKILL_ID")
+    application = (event.get("context") or {}).get("System", {}).get("application", {})
+    if expected and application.get("applicationId") != expected:
+        raise ValueError("request from another skill")
+    speech = "Hola, soy Paula. Te avisaré aquí cuando termine algo en tu PC."
+    return {
+        "version": "1.0",
+        "response": {
+            "outputSpeech": {"type": "PlainText", "text": speech},
+            "shouldEndSession": True,
+        },
+    }
+
+
 def lambda_handler(event, context):
+    if "request" in event:  # invoked by Alexa, not by the hub
+        return _alexa_response(event)
     body = event.get("body") or ""
     raw = base64.b64decode(body) if event.get("isBase64Encoded") else body.encode()
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}

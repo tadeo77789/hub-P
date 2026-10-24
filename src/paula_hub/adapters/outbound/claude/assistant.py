@@ -58,7 +58,8 @@ class ClaudeAssistant:
         effort: str = "low",
         max_tokens: int = 16000,
     ) -> None:
-        self._client = client or anthropic.Anthropic()
+        # Stay well under the RabbitMQ heartbeat: the consumer blocks during the call.
+        self._client = client or anthropic.Anthropic(timeout=60.0, max_retries=1)
         self._model = model
         self._effort = effort
         self._max_tokens = max_tokens

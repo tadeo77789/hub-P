@@ -13,7 +13,7 @@ import pika
 from pika.adapters.blocking_connection import BlockingChannel
 
 from paula_hub.adapters import topology
-from paula_hub.adapters.signing import InvalidSignature, sign, verify
+from paula_hub.adapters.signing import InvalidSignature, SeenIds, sign, verify
 from paula_hub.domain.messages import Action, Event, Order, Result
 from paula_hub.ports.inbound.message_handler import MessageHandler
 
@@ -28,6 +28,7 @@ class RabbitMqBroker:
         # Claude calls block the consumer; keep the heartbeat well above them.
         self._params.heartbeat = 600
         self._secret = secret
+        self._seen = SeenIds()
         self._connection: pika.BlockingConnection | None = None
         self._channel: BlockingChannel | None = None
 
@@ -82,8 +83,12 @@ class RabbitMqBroker:
             try:
                 verify(self._secret, body, properties.headers)
                 message = parse(json.loads(body))
-            except (InvalidSignature, ValueError, KeyError) as exc:
+            except (InvalidSignature, ValueError, KeyError, TypeError, AttributeError) as exc:
                 log.warning("Dropping invalid message on %s: %s", method.routing_key, exc)
+                return
+            message_id = getattr(message, "id", None) or getattr(message, "action_id", None)
+            if not self._seen.add(message_id):
+                log.warning("Dropping replayed message %s", message_id)
                 return
             try:
                 callback(message)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import urllib.request
-from urllib.error import URLError
 
 from paula_hub.adapters.signing import sign
 from paula_hub.domain.messages import Alert
@@ -30,7 +29,7 @@ class AlexaNotifier:
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
                 log.info("Alexa alert sent (%s)", response.status)
-        except (URLError, TimeoutError) as exc:
+        except OSError as exc:  # URLError, timeouts, dropped connections
             # Alerts are best effort; never break the conversation over them.
             log.warning("Could not send Alexa alert: %s", exc)
 
