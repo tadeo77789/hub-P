@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from paula_hub.application.sentences import SentenceSplitter
 from paula_hub.domain.commands import get_command
 from paula_hub.domain.conversation import AssistantTurn, ToolCall, ToolResult
+from paula_hub.domain.knowledge import KNOWLEDGE_TOOLS
 from paula_hub.domain.memory import MEMORY_TOOLS
 from paula_hub.domain.messages import (
     Action,
@@ -25,6 +26,7 @@ from paula_hub.domain.messages import (
 )
 from paula_hub.ports.outbound.agent_gateway import AgentGatewayPort
 from paula_hub.ports.outbound.assistant import AssistantError, AssistantPort
+from paula_hub.ports.outbound.knowledge import KnowledgePort
 from paula_hub.ports.outbound.memory import AmbiguousForget, MemoryPort, MemoryUnavailable
 from paula_hub.ports.outbound.notifier import NotifierPort
 
@@ -35,6 +37,7 @@ CONFIRM_YES = "Sí, confirmo"
 CONFIRM_NO = "No"
 MAX_TOOL_ROUNDS = 5
 RECALL_LIMIT = 5
+PASSAGE_LIMIT = 3
 
 _CHANNELS = {
     Source.VOICE: Channel.PC,
@@ -72,6 +75,7 @@ class AssistantService:
         notifier: NotifierPort,
         *,
         memory: MemoryPort | None = None,
+        knowledge: KnowledgePort | None = None,
         session_id: str = "default",
         long_task_seconds: float = 30.0,
         idle_reset_seconds: float = 900.0,
@@ -81,8 +85,10 @@ class AssistantService:
         self._gateway = gateway
         self._notifier = notifier
         self._memory = memory
-        # Facts recalled for the order in flight: tool rounds reuse them.
+        self._knowledge = knowledge
+        # Facts and passages recalled for the order in flight: tool rounds reuse them.
         self._recalled: tuple[str, list[str]] = ("", [])
+        self._referenced: tuple[str, list[str]] = ("", [])
         self._session_id = session_id
         self._long_task_seconds = long_task_seconds
         self._idle_reset_seconds = idle_reset_seconds
@@ -143,6 +149,7 @@ class AssistantService:
                 results=results,
                 on_text=on_text if splitter else None,
                 context=self._recall(order),
+                references=self._references(order),
             )
         except AssistantError:
             log.exception("Assistant failed for order %s", order.id)
@@ -166,6 +173,34 @@ class AssistantService:
             facts = []
         self._recalled = (order.id, facts)
         return facts
+
+    def _references(self, order: Order) -> list[str]:
+        if self._knowledge is None or not order.text:
+            return []
+        if self._referenced[0] == order.id:
+            return self._referenced[1]
+        try:
+            passages = [
+                f"[{p.source}]\n{p.text}" for p in self._knowledge.search(order.text, PASSAGE_LIMIT)
+            ]
+        except MemoryUnavailable:
+            log.warning("Knowledge base unavailable; answering without it", exc_info=True)
+            passages = []
+        self._referenced = (order.id, passages)
+        return passages
+
+    def _run_learn(self, call: ToolCall) -> ToolResult:
+        if self._knowledge is None:
+            return ToolResult(call.id, "The knowledge base is turned off.", is_error=True)
+        try:
+            source = self._knowledge.learn(
+                str(call.args.get("title", "")), str(call.args.get("text", ""))
+            )
+        except (MemoryUnavailable, OSError, ValueError) as exc:
+            log.warning("learn failed: %s", exc)
+            return ToolResult(call.id, f"Could not save the note: {exc}", is_error=True)
+        self._referenced = ("", [])
+        return ToolResult(call.id, f"Saved in the knowledge base as {source}")
 
     def _run_memory_tool(self, call: ToolCall) -> ToolResult:
         """Memory tools run here in the hub; the result goes straight back to the model."""
@@ -233,6 +268,9 @@ class AssistantService:
             return
 
         for call in state.calls:
+            if call.name in KNOWLEDGE_TOOLS:
+                state.results[call.id] = self._run_learn(call)
+                continue
             if call.name in MEMORY_TOOLS:
                 state.results[call.id] = self._run_memory_tool(call)
                 continue

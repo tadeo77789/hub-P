@@ -25,6 +25,13 @@ def log_dir() -> Path:
     return Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "PaulaPort" / "logs"
 
 
+def default_knowledge_dir() -> Path:
+    """Documents\\Paula\\Conocimiento: easy to find and to drop files into."""
+    return (
+        Path(os.environ.get("USERPROFILE") or Path.home()) / "Documents" / "Paula" / "Conocimiento"
+    )
+
+
 def setup_logging(level: str, name: str) -> None:
     """Log to a rotating file (pythonw at logon has no console) and to stderr if present."""
     log_dir().mkdir(parents=True, exist_ok=True)
@@ -51,6 +58,8 @@ class Settings:
     ollama_timeout: float
     ollama_keep_alive: str
     memory_embed_model: str
+    knowledge_dir: str
+    ollama_num_ctx: int
     alexa_notify_url: str
     alexa_notify_secret: str
     long_task_seconds: float
@@ -76,8 +85,11 @@ class Settings:
         try:
             long_task_seconds = float(os.environ.get("LONG_TASK_SECONDS") or 30)
             ollama_timeout = float(os.environ.get("OLLAMA_TIMEOUT") or 60)
+            ollama_num_ctx = int(os.environ.get("OLLAMA_NUM_CTX") or 6144)
         except ValueError as exc:
-            raise SettingsError("LONG_TASK_SECONDS and OLLAMA_TIMEOUT must be numbers") from exc
+            raise SettingsError(
+                "LONG_TASK_SECONDS, OLLAMA_TIMEOUT and OLLAMA_NUM_CTX must be numbers"
+            ) from exc
 
         return cls(
             rabbitmq_url=os.environ.get("RABBITMQ_URL") or "amqp://paula:paula@localhost:5672/",
@@ -88,6 +100,9 @@ class Settings:
             ollama_keep_alive=os.environ.get("OLLAMA_KEEP_ALIVE") or "30m",
             # "off" turns long-term memory off.
             memory_embed_model=os.environ.get("MEMORY_EMBED_MODEL") or DEFAULT_EMBED_MODEL,
+            # "off" turns the knowledge base off.
+            knowledge_dir=os.environ.get("KNOWLEDGE_DIR") or str(default_knowledge_dir()),
+            ollama_num_ctx=ollama_num_ctx,
             alexa_notify_url=alexa_url,
             alexa_notify_secret=alexa_secret,
             long_task_seconds=long_task_seconds,
