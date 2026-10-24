@@ -25,7 +25,7 @@ from paula_hub.domain.messages import (
 )
 from paula_hub.ports.outbound.agent_gateway import AgentGatewayPort
 from paula_hub.ports.outbound.assistant import AssistantError, AssistantPort
-from paula_hub.ports.outbound.memory import MemoryPort, MemoryUnavailable
+from paula_hub.ports.outbound.memory import AmbiguousForget, MemoryPort, MemoryUnavailable
 from paula_hub.ports.outbound.notifier import NotifierPort
 
 log = logging.getLogger(__name__)
@@ -81,6 +81,8 @@ class AssistantService:
         self._gateway = gateway
         self._notifier = notifier
         self._memory = memory
+        # Facts recalled for the order in flight: tool rounds reuse them.
+        self._recalled: tuple[str, list[str]] = ("", [])
         self._session_id = session_id
         self._long_task_seconds = long_task_seconds
         self._idle_reset_seconds = idle_reset_seconds
@@ -140,7 +142,7 @@ class AssistantService:
                 text=text,
                 results=results,
                 on_text=on_text if splitter else None,
-                context=self._recall(order.text),
+                context=self._recall(order),
             )
         except AssistantError:
             log.exception("Assistant failed for order %s", order.id)
@@ -151,15 +153,19 @@ class AssistantService:
                 self._send_partial(order, sentence)
         self._process(order, turn, round_)
 
-    def _recall(self, text: str) -> list[str]:
-        if self._memory is None or not text:
+    def _recall(self, order: Order) -> list[str]:
+        if self._memory is None or not order.text:
             return []
+        if self._recalled[0] == order.id:
+            return self._recalled[1]
         try:
-            return [fact.text for fact in self._memory.recall(text, RECALL_LIMIT)]
+            facts = [fact.text for fact in self._memory.recall(order.text, RECALL_LIMIT)]
         except MemoryUnavailable:
             # Paula still answers, just without what she remembers.
             log.warning("Memory unavailable; answering without it", exc_info=True)
-            return []
+            facts = []
+        self._recalled = (order.id, facts)
+        return facts
 
     def _run_memory_tool(self, call: ToolCall) -> ToolResult:
         """Memory tools run here in the hub; the result goes straight back to the model."""
@@ -170,7 +176,15 @@ class AssistantService:
                 fact = self._memory.remember(str(call.args.get("fact", "")))
                 return ToolResult(call.id, f"Saved: {fact.text}")
             if call.name == "forget":
-                gone = self._memory.forget(str(call.args.get("about", "")))
+                try:
+                    gone = self._memory.forget(str(call.args.get("about", "")))
+                except AmbiguousForget as many:
+                    listed = "; ".join(f.text for f in many.candidates)
+                    return ToolResult(
+                        call.id,
+                        f"Nothing deleted: {len(many.candidates)} facts match ({listed}). "
+                        "Ask Ola which one, then call forget with that fact's exact text.",
+                    )
                 if not gone:
                     return ToolResult(call.id, "Nothing in memory matched that.")
                 return ToolResult(call.id, "Deleted: " + "; ".join(f.text for f in gone))

@@ -18,7 +18,7 @@ class CommandSpec:
     destructive: bool = False
 
 
-def _schema(properties: dict[str, Any] | None = None) -> dict[str, Any]:
+def tool_schema(properties: dict[str, Any] | None = None) -> dict[str, Any]:
     properties = properties or {}
     return {
         "type": "object",
@@ -38,7 +38,7 @@ WHITELIST: dict[str, CommandSpec] = {
                 "for example 'navegador', 'spotify' or 'calculadora'. The PC agent only "
                 "opens apps from its configured list and reports an error otherwise."
             ),
-            input_schema=_schema({"app": {"type": "string"}}),
+            input_schema=tool_schema({"app": {"type": "string"}}),
         ),
         CommandSpec(
             name="system_status",
@@ -46,7 +46,7 @@ WHITELIST: dict[str, CommandSpec] = {
                 "Read the PC status: CPU, memory, disk, battery and uptime. Use it when the "
                 "user asks how the computer is doing."
             ),
-            input_schema=_schema(),
+            input_schema=tool_schema(),
         ),
         CommandSpec(
             name="shutdown_pc",
@@ -54,7 +54,7 @@ WHITELIST: dict[str, CommandSpec] = {
                 "Shut down the user's PC after a 60 second grace period. Destructive: the "
                 "user is always asked to confirm before it runs."
             ),
-            input_schema=_schema(),
+            input_schema=tool_schema(),
             destructive=True,
         ),
     )

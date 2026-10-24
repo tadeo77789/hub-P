@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from paula_hub.domain.commands import CommandSpec, _schema
+from paula_hub.domain.commands import CommandSpec, tool_schema
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ MEMORY_TOOLS: dict[str, CommandSpec] = {
                 "you to remember something or shares something worth knowing later. Do not "
                 "save small talk, questions or things that only matter right now."
             ),
-            input_schema=_schema({"fact": {"type": "string"}}),
+            input_schema=tool_schema({"fact": {"type": "string"}}),
         ),
         CommandSpec(
             name="forget",
@@ -39,12 +39,12 @@ MEMORY_TOOLS: dict[str, CommandSpec] = {
                 "Delete what long-term memory holds about a topic, when the user asks you "
                 "to forget it or says a saved fact is wrong. `about` describes the fact."
             ),
-            input_schema=_schema({"about": {"type": "string"}}),
+            input_schema=tool_schema({"about": {"type": "string"}}),
         ),
         CommandSpec(
             name="list_memories",
             description="List everything in long-term memory, when the user asks what you know about them.",
-            input_schema=_schema(),
+            input_schema=tool_schema(),
         ),
     )
 }

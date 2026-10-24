@@ -7,6 +7,14 @@ class MemoryUnavailable(Exception):
     """The memory store or its embedding model could not be reached."""
 
 
+class AmbiguousForget(Exception):
+    """Too many facts match a forget request; nothing was deleted."""
+
+    def __init__(self, candidates: list[MemoryFact]) -> None:
+        super().__init__(f"{len(candidates)} facts match")
+        self.candidates = candidates
+
+
 class MemoryPort(Protocol):
     """Facts about the user, searched by meaning rather than by exact words."""
 
@@ -19,7 +27,10 @@ class MemoryPort(Protocol):
         ...
 
     def forget(self, about: str) -> list[MemoryFact]:
-        """Delete the facts that match `about` and return them."""
+        """Delete the facts that match `about` and return them.
+
+        Raises AmbiguousForget instead of deleting when too many facts match.
+        """
         ...
 
     def all(self) -> list[MemoryFact]: ...

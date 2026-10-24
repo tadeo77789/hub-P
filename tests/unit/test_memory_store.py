@@ -1,7 +1,7 @@
 import pytest
 
 from paula_hub.adapters.outbound.memory.store import OllamaEmbedder, SqliteMemory
-from paula_hub.ports.outbound.memory import MemoryUnavailable
+from paula_hub.ports.outbound.memory import AmbiguousForget, MemoryUnavailable
 
 # One axis per topic: texts that mention the same topic point the same way.
 TOPICS = ("rock", "perro", "dentista", "cumpleaños")
@@ -117,3 +117,50 @@ def test_vague_forget_only_drops_the_closest_facts(tmp_path):
     gone = memory.forget("eso que te dije")
 
     assert [f.text for f in gone] == ["Ola va al dentista"]
+
+
+def test_too_many_matches_deletes_nothing(tmp_path):
+    axes = {"dentista": [1.0, 0.0, 0.0], "perro": [0.0, 1.0, 0.0], "rock": [0.0, 0.0, 1.0]}
+
+    def embed(texts):
+        # The vague question sits at the same distance (0.58) from all three facts.
+        return [next((v for k, v in axes.items() if k in t), [1.0, 1.0, 1.0]) for t in texts]
+
+    memory = SqliteMemory(tmp_path / "m.sqlite3", embed)
+    for fact in ("Ola va al dentista el lunes", "Ola tiene un perro", "A Ola le gusta el rock"):
+        memory.remember(fact)
+
+    with pytest.raises(AmbiguousForget) as many:
+        memory.forget("eso")
+
+    assert len(many.value.candidates) == 3
+    assert len(memory.all()) == 3
+
+
+def test_exact_text_deletes_just_that_fact(tmp_path):
+    memory = SqliteMemory(tmp_path / "m.sqlite3", lambda texts: [[1.0, 0.0] for _ in texts])
+    memory.remember("Ola tiene un perro")
+    memory._db.execute(
+        "INSERT INTO facts VALUES ('x', 'Ola tiene un gato', ?, '2')",
+        (memory._db.execute("SELECT embedding FROM facts").fetchone()[0],),
+    )
+
+    assert [f.text for f in memory.forget("Ola tiene un gato")] == ["Ola tiene un gato"]
+    assert [f.text for f in memory.all()] == ["Ola tiene un perro"]
+
+
+def test_common_words_are_not_keywords(tmp_path):
+    def apart(texts):
+        return [[0.0, 0.0, 1.0] if t == "gusta" else [1.0, 0.0, 0.0] for t in texts]
+
+    memory = SqliteMemory(tmp_path / "m.sqlite3", apart)
+    memory.remember("A Ola le gusta el rock")
+
+    assert memory.forget("gusta") == []
+
+
+def test_database_errors_become_memory_unavailable(memory):
+    memory._db.close()
+
+    with pytest.raises(MemoryUnavailable):
+        memory.all()

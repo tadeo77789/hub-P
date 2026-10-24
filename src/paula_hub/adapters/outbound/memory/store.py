@@ -8,6 +8,7 @@ A few hundred facts are compared in plain Python in milliseconds.
 
 from __future__ import annotations
 
+import functools
 import http.client
 import json
 import logging
@@ -23,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from paula_hub.domain.memory import MemoryFact
-from paula_hub.ports.outbound.memory import MemoryUnavailable
+from paula_hub.ports.outbound.memory import AmbiguousForget, MemoryUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +40,50 @@ QUERY_PREFIX = (
 # a missed one is not, so recall is generous.
 RECALL_SIMILARITY = 0.40
 FORGET_SIMILARITY = 0.50
+FORGET_MARGIN = 0.05
+# More matches than this and nothing is deleted: Paula asks which one instead.
+MAX_FORGET = 2
 # "El cumpleaños de Ola..." vs "El cumpleaños de la mamá de Ola..." scored 0.93, so only
 # a near-identical fact replaces an old one; corrections go through forget + remember.
 DUPLICATE_SIMILARITY = 0.98
-FORGET_MARGIN = 0.05
+MAX_FACT_CHARS = 300
+# Words too common in facts to identify one ("A Ola le gusta...").
+STOP_WORDS = frozenset(
+    [
+        "gusta",
+        "gustan",
+        "encanta",
+        "tiene",
+        "tienen",
+        "quiere",
+        "quiero",
+        "sobre",
+        "todo",
+        "todos",
+        "todas",
+        "cosas",
+        "cosa",
+        "algo",
+        "esto",
+        "esta",
+        "este",
+        "eso",
+        "olvida",
+        "olvidar",
+        "recuerda",
+        "recuerdo",
+        "dato",
+        "datos",
+        "para",
+        "porque",
+        "cuando",
+        "donde",
+        "mucho",
+        "poco",
+        "siempre",
+        "nunca",
+    ]
+)
 
 Embed = Callable[[Sequence[str]], list[list[float]]]
 
@@ -91,12 +132,28 @@ def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / norm if norm else 0.0
 
 
+def _database_errors(method):
+    """A locked, full or corrupt database is just "memory unavailable" to the core."""
+
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except sqlite3.Error as exc:
+            raise MemoryUnavailable(f"Memory database error: {exc}") from exc
+
+    return wrapper
+
+
 class SqliteMemory:
-    def __init__(self, path: Path, embed: Embed) -> None:
+    def __init__(self, path: Path, embed: Embed, *, recall_embed: Embed | None = None) -> None:
+        """`recall_embed` runs before every answer, so it can use a shorter timeout."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._embed = embed
+        self._recall_embed = recall_embed or embed
         self._lock = threading.Lock()
-        self._db = sqlite3.connect(str(path), check_same_thread=False)
+        # The settings window may hold a short write lock: wait for it, briefly.
+        self._db = sqlite3.connect(str(path), check_same_thread=False, timeout=2)
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS facts ("
             " id TEXT PRIMARY KEY, text TEXT NOT NULL, embedding BLOB NOT NULL,"
@@ -104,8 +161,9 @@ class SqliteMemory:
         )
         self._db.commit()
 
+    @_database_errors
     def remember(self, text: str) -> MemoryFact:
-        text = " ".join(text.split())
+        text = " ".join(text.split())[:MAX_FACT_CHARS]
         if not text:
             raise ValueError("Empty fact")
         [vector] = self._embed([text])
@@ -122,36 +180,44 @@ class SqliteMemory:
             self._db.commit()
         return fact
 
+    @_database_errors
     def recall(self, query: str, limit: int = 5) -> list[MemoryFact]:
         if not query.strip():
             return []
         with self._lock:
             if not self._count():
                 return []  # nothing saved yet: skip the embedding call
-        [vector] = self._embed([QUERY_PREFIX + query])
+        [vector] = self._recall_embed([QUERY_PREFIX + query])
         with self._lock:
             scored = self._scored(vector)
         return [fact for score, fact in scored[:limit] if score >= RECALL_SIMILARITY]
 
+    @_database_errors
     def forget(self, about: str) -> list[MemoryFact]:
-        if not about.strip():
+        about = " ".join(about.split())
+        if not about:
             return []
         # No query prefix here: the model often passes a bare topic ("taller"), which scores
-        # 0.18 with the prefix and 0.33 without. Facts that contain every content word of
-        # `about` go too, so "olvida lo del taller" works even when the score is low.
+        # 0.18 with the prefix and 0.33 without.
         [vector] = self._embed([about])
-        keywords = [w for w in _words(about) if len(w) >= 4]
+        keywords = [w for w in _words(about) if len(w) >= 4 and w not in STOP_WORDS]
         with self._lock:
             scored = self._scored(vector)
-            best = scored[0][0] if scored else 0.0
-            # A vague request ("lo que sabes de mí") can score above the threshold for every
-            # fact; only the ones about as close as the best match go.
-            gone = [
-                fact
-                for score, fact in scored
-                if (score >= FORGET_SIMILARITY and score >= best - FORGET_MARGIN)
-                or (keywords and all(w in _words(fact.text) for w in keywords))
-            ]
+            exact = [f for _, f in scored if f.text.casefold() == about.casefold()]
+            if exact:
+                gone = exact  # the model passed the text it got from list_memories
+            else:
+                best = scored[0][0] if scored else 0.0
+                # Only facts about as close as the best match, or that contain every
+                # distinctive word of `about` ("olvida lo del taller").
+                gone = [
+                    fact
+                    for score, fact in scored
+                    if (score >= FORGET_SIMILARITY and score >= best - FORGET_MARGIN)
+                    or (keywords and all(w in _words(fact.text) for w in keywords))
+                ]
+            if len(gone) > MAX_FORGET:
+                raise AmbiguousForget(gone)
             self._db.executemany("DELETE FROM facts WHERE id = ?", [(f.id,) for f in gone])
             self._db.commit()
         return gone
@@ -160,6 +226,7 @@ class SqliteMemory:
         """Load the embedding model now: the first call takes ~20 s on this PC."""
         self._embed(["hola"])
 
+    @_database_errors
     def all(self) -> list[MemoryFact]:
         with self._lock:
             rows = self._db.execute(

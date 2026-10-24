@@ -48,13 +48,19 @@ def main() -> int:
     )
     memory = None
     if settings.memory_embed_model.lower() != "off":
-        memory = SqliteMemory(
-            log_dir().parent / "memory.sqlite3",
-            OllamaEmbedder(
+
+        def embedder(timeout: float) -> OllamaEmbedder:
+            return OllamaEmbedder(
                 settings.ollama_url,
                 settings.memory_embed_model,
+                timeout=timeout,
                 keep_alive=settings.ollama_keep_alive,
-            ),
+            )
+
+        memory = SqliteMemory(
+            log_dir().parent / "memory.sqlite3",
+            embedder(20.0),  # remember/forget/warm-up may load the model
+            recall_embed=embedder(3.0),  # every answer waits for this one
         )
 
         def warm_up() -> None:

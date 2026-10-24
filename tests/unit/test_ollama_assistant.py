@@ -1,6 +1,6 @@
 import pytest
 
-from paula_hub.adapters.outbound.ollama.assistant import TOOLS, OllamaAssistant
+from paula_hub.adapters.outbound.ollama.assistant import SYSTEM_PROMPT, TOOLS, OllamaAssistant
 from paula_hub.domain.conversation import ToolResult
 from paula_hub.ports.outbound.assistant import AssistantError
 
@@ -45,15 +45,18 @@ def test_tools_cover_whitelist_and_memory():
     }
 
 
-def test_recalled_facts_go_to_the_system_prompt_only():
+def test_recalled_facts_go_in_a_note_before_the_latest_message_only():
     assistant, fake = make(reply("Te pongo rock."), reply("Hola."))
 
     assistant.send("s", text="pon música", context=["A Ola le gusta el rock de los 80"])
     assistant.send("s", text="hola")
 
     first, second = (payload["messages"] for _, payload in fake.requests)
-    assert "- A Ola le gusta el rock de los 80" in first[0]["content"]
-    assert "rock de los 80" not in second[0]["content"]  # not kept in the history
+    assert first[0]["content"] == SYSTEM_PROMPT  # fixed, so the prompt cache holds
+    assert first[1]["role"] == "system"
+    assert "- A Ola le gusta el rock de los 80" in first[1]["content"]
+    assert first[2] == {"role": "user", "content": "pon música"}
+    assert all("rock de los 80" not in m["content"] for m in second)  # not kept
 
 
 def test_text_reply_uses_qwen_without_thinking():

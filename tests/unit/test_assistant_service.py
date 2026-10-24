@@ -18,7 +18,7 @@ from paula_hub.domain.messages import (
     Status,
 )
 from paula_hub.ports.outbound.assistant import AssistantError
-from paula_hub.ports.outbound.memory import MemoryUnavailable
+from paula_hub.ports.outbound.memory import AmbiguousForget, MemoryUnavailable
 
 
 class FakeAssistant:
@@ -456,3 +456,62 @@ def test_memory_tools_without_memory_report_an_error(gateway, notifier):
 
     [result] = assistant.calls[1][1]
     assert result.is_error
+
+
+def test_memory_is_recalled_once_per_order(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "system_status", {})]),
+        AssistantTurn("Todo bien."),
+    )
+    memory = FakeMemory(["Ola juega Arc Raiders"])
+    service = make_service(assistant, gateway, notifier, memory=memory)
+    order = voice("¿cómo está el pc?")
+
+    service.handle_order(order)
+    [action] = gateway.actions
+    service.handle_event(Event(action_id=action.id, status=Status.OK, output="ok"))
+
+    assert memory.queries == ["¿cómo está el pc?"]
+    assert assistant.contexts == [["Ola juega Arc Raiders"], ["Ola juega Arc Raiders"]]
+
+
+def test_memory_and_pc_tools_in_one_turn(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn(
+            "",
+            [
+                ToolCall("c1", "remember", {"fact": "A Ola le gusta Spotify"}),
+                ToolCall("c2", "open_app", {"app": "spotify"}),
+            ],
+        ),
+        AssistantTurn("Abrí Spotify."),
+    )
+    service = make_service(assistant, gateway, notifier, memory=FakeMemory())
+
+    service.handle_order(voice("abre spotify, me encanta"))
+    [action] = gateway.actions
+    assert action.command == "open_app"
+    service.handle_event(Event(action_id=action.id, status=Status.OK, output="opened"))
+
+    _, results = assistant.calls[1]
+    assert [r.tool_call_id for r in results] == ["c1", "c2"]  # every call answered
+    assert gateway.replies[-1].response_text == "Abrí Spotify."
+
+
+def test_ambiguous_forget_asks_instead_of_deleting(gateway, notifier):
+    class Ambiguous(FakeMemory):
+        def forget(self, about):
+            raise AmbiguousForget(
+                [MemoryFact("1", "a", ""), MemoryFact("2", "b", ""), MemoryFact("3", "c", "")]
+            )
+
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "forget", {"about": "eso"})]),
+        AssistantTurn("¿Cuál quieres que olvide?"),
+    )
+    service = make_service(assistant, gateway, notifier, memory=Ambiguous())
+
+    service.handle_order(voice("olvida eso"))
+
+    [result] = assistant.calls[1][1]
+    assert result.content.startswith("Nothing deleted: 3 facts match")
