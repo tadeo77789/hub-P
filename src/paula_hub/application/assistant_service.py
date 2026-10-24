@@ -106,9 +106,10 @@ class AssistantService:
         turn.results[flight.call_id] = ToolResult(
             flight.call_id, event.output, is_error=event.status is Status.ERROR
         )
-        if event.duration_seconds >= self._long_task_seconds:
-            self._notifier.notify(Alert(title="Tarea terminada", message=event.output[:200]))
+        # Answer the user first; the alert is best effort and must not block the reply.
         self._continue_if_done(turn)
+        if event.duration_seconds >= self._long_task_seconds:
+            self._notify(Alert(title="Tarea terminada", message=event.output[:200]))
 
     # Steps
 
@@ -215,8 +216,12 @@ class AssistantService:
 
     def _reset_if_idle(self) -> None:
         now = self._clock()
-        if now - self._last_activity > self._idle_reset_seconds and not self._turns:
+        if now - self._last_activity > self._idle_reset_seconds:
+            # A fresh history has no open tool calls, so forget the pending ones too.
             self._assistant.reset(self._session_id)
+            self._turns.clear()
+            self._in_flight.clear()
+            self._confirmations.clear()
         self._last_activity = now
 
     # Replies
@@ -248,4 +253,10 @@ class AssistantService:
         )
         self._gateway.reply(result)
         if order.source is Source.ALEXA:
-            self._notifier.notify(Alert(title="Paula", message=text))
+            self._notify(Alert(title="Paula", message=text))
+
+    def _notify(self, alert: Alert) -> None:
+        try:
+            self._notifier.notify(alert)
+        except Exception:
+            log.exception("Notifier failed")

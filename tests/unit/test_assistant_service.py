@@ -244,3 +244,68 @@ def test_conversation_resets_after_idle(gateway, notifier):
     service.handle_order(voice("hola otra vez"))
 
     assert assistant.resets == 1
+
+
+def test_failing_notifier_does_not_block_reply(gateway):
+    class BrokenNotifier:
+        def notify(self, alert):
+            raise RuntimeError("lambda down")
+
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("t1", "system_status", {})]),
+        AssistantTurn("Todo bien."),
+    )
+    service = make_service(assistant, gateway, BrokenNotifier(), long_task_seconds=1)
+    service.handle_order(voice("estado"))
+    [action] = gateway.actions
+
+    service.handle_event(
+        Event(action_id=action.id, status=Status.OK, output="ok", duration_seconds=5)
+    )
+
+    assert gateway.replies[-1].response_text == "Todo bien."
+
+
+def test_late_and_duplicate_events_are_ignored(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("t1", "system_status", {})]),
+        AssistantTurn("Listo."),
+    )
+    service = make_service(assistant, gateway, notifier)
+    service.handle_order(voice("estado"))
+    [action] = gateway.actions
+    event = Event(action_id=action.id, status=Status.OK, output="ok")
+
+    service.handle_event(event)
+    service.handle_event(event)
+    service.handle_event(Event(action_id="unknown", status=Status.OK, output="?"))
+
+    assert len(assistant.calls) == 2
+    assert len(gateway.replies) == 1
+
+
+def test_confirm_without_pending_question(gateway, notifier):
+    service = make_service(FakeAssistant(), gateway, notifier)
+
+    service.handle_order(Order(Source.CHAT, Intent.CONFIRM, {"text": CONFIRM_YES, "reply_to": "x"}))
+
+    assert gateway.actions == []
+    assert gateway.replies[0].status is Status.OK
+
+
+def test_idle_reset_forgets_open_tool_calls(gateway, notifier):
+    now = [0.0]
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("t1", "shutdown_pc", {})]),
+        AssistantTurn("Hola"),
+    )
+    service = make_service(
+        assistant, gateway, notifier, idle_reset_seconds=60, clock=lambda: now[0]
+    )
+    service.handle_order(voice("apaga"))
+    now[0] = 600.0
+
+    service.handle_order(voice("hola"))
+
+    assert assistant.resets == 1
+    assert assistant.calls[-1] == ("hola", [])
