@@ -1,0 +1,39 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "es-US": {
+          "name": "Paula Port",
+          "summary": "Avisos de Paula, tu asistente del PC.",
+          "description": "Recibe en Alexa los avisos de Paula cuando termina una tarea en tu PC.",
+          "examplePhrases": ["Alexa, abre paula port"]
+        }
+      },
+      "isAvailableWorldwide": false,
+      "distributionCountries": ["CO"],
+      "category": "PRODUCTIVITY"
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "REPLACE_WITH_SKILL_LAMBDA_ARN"
+        }
+      }
+    },
+    "permissions": [
+      { "name": "alexa::devices:all:notifications:write" }
+    ],
+    "events": {
+      "publications": [
+        { "eventName": "AMAZON.MessageAlert.Activated" }
+      ],
+      "endpoint": {
+        "uri": "REPLACE_WITH_SKILL_LAMBDA_ARN"
+      },
+      "subscriptions": [
+        { "eventName": "SKILL_PROACTIVE_SUBSCRIPTION_CHANGED" }
+      ]
+    },
+    "manifestVersion": "1.0"
+  }
+}
