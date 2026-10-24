@@ -28,6 +28,7 @@ Requires Python 3.11+, RabbitMQ and [Ollama](https://ollama.com) with the model 
 
 ```bash
 ollama pull qwen3:4b-instruct   # about 2.5 GB, runs on the GPU
+ollama pull qwen3-embedding:0.6b  # about 640 MB, long-term memory
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
@@ -44,6 +45,7 @@ Start at logon: `powershell -ExecutionPolicy Bypass -File scripts\install-startu
 ## How it works
 
 - Orders arrive on `hub.orders`; the core sends the text to Qwen (`qwen3:4b-instruct` in Ollama, thinking off for speed) with the command whitelist as tools. Everything runs on the PC; nothing goes to a cloud model.
+- **Long-term memory.** Qwen can call `remember`, `forget` and `list_memories` (they run in the hub, never on the PC agent). Facts are short Spanish sentences stored with their embedding (`qwen3-embedding:0.6b`) in `%LOCALAPPDATA%\PaulaPort\memory.sqlite3`. Before each answer the hub recalls up to 5 related facts by meaning and adds them to the system prompt for that turn only. `MEMORY_EMBED_MODEL=off` disables it; if Ollama cannot embed, Paula answers without memory.
 - Tool calls become signed `Action` messages on `agent.actions`. Destructive ones (`shutdown_pc`) first return a `question` result with Yes / No options and only run after a `confirm` order.
 - The agent reports each action on `hub.events`; the core feeds the outcome back to the model and replies on `agent.results`.
 - Actions that take longer than `LONG_TASK_SECONDS`, and replies to Alexa orders, also go to Alexa (`alexa-skill/`).

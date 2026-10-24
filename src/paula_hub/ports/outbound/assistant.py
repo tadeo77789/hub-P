@@ -13,7 +13,9 @@ class AssistantPort(Protocol):
 
     Every tool call of a turn must be answered in the next `send`, before or
     together with new user text. With `on_text`, reply text is also handed over in
-    pieces as it is generated (for speaking before the turn is complete).
+    pieces as it is generated (for speaking before the turn is complete). `context`
+    holds facts recalled from long-term memory for this turn only; they are not
+    kept in the history.
     """
 
     def send(
@@ -23,6 +25,7 @@ class AssistantPort(Protocol):
         text: str | None = None,
         results: Sequence[ToolResult] = (),
         on_text: Callable[[str], None] | None = None,
+        context: Sequence[str] = (),
     ) -> AssistantTurn: ...
 
     def reset(self, session_id: str) -> None: ...

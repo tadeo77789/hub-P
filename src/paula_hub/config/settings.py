@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from paula_hub.adapters.outbound.memory.store import DEFAULT_EMBED_MODEL
 from paula_hub.adapters.outbound.ollama.assistant import DEFAULT_MODEL, DEFAULT_URL
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
@@ -49,6 +50,7 @@ class Settings:
     ollama_model: str
     ollama_timeout: float
     ollama_keep_alive: str
+    memory_embed_model: str
     alexa_notify_url: str
     alexa_notify_secret: str
     long_task_seconds: float
@@ -84,6 +86,8 @@ class Settings:
             ollama_model=os.environ.get("OLLAMA_MODEL") or DEFAULT_MODEL,
             ollama_timeout=ollama_timeout,
             ollama_keep_alive=os.environ.get("OLLAMA_KEEP_ALIVE") or "30m",
+            # "off" turns long-term memory off.
+            memory_embed_model=os.environ.get("MEMORY_EMBED_MODEL") or DEFAULT_EMBED_MODEL,
             alexa_notify_url=alexa_url,
             alexa_notify_secret=alexa_secret,
             long_task_seconds=long_task_seconds,

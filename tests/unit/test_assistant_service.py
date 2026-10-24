@@ -4,6 +4,7 @@ import pytest
 
 from paula_hub.application.assistant_service import CONFIRM_NO, CONFIRM_YES, AssistantService
 from paula_hub.domain.conversation import AssistantTurn, ToolCall, ToolResult
+from paula_hub.domain.memory import MemoryFact
 from paula_hub.domain.messages import (
     Action,
     Alert,
@@ -17,6 +18,7 @@ from paula_hub.domain.messages import (
     Status,
 )
 from paula_hub.ports.outbound.assistant import AssistantError
+from paula_hub.ports.outbound.memory import MemoryUnavailable
 
 
 class FakeAssistant:
@@ -25,9 +27,19 @@ class FakeAssistant:
         self.stream = stream
         self.calls: list[tuple[str | None, list[ToolResult]]] = []
         self.resets = 0
+        self.contexts: list[list[str]] = []
 
-    def send(self, session_id: str, *, text=None, results: Sequence[ToolResult] = (), on_text=None):
+    def send(
+        self,
+        session_id: str,
+        *,
+        text=None,
+        results: Sequence[ToolResult] = (),
+        on_text=None,
+        context: Sequence[str] = (),
+    ):
         self.calls.append((text, list(results)))
+        self.contexts.append(list(context))
         turn = self.turns.pop(0)
         if isinstance(turn, Exception):
             raise turn
@@ -340,3 +352,107 @@ def test_chat_reply_is_not_streamed(gateway, notifier):
     )
 
     assert [r.partial for r in gateway.replies] == [False]
+
+
+class FakeMemory:
+    def __init__(self, facts=(), fail=False):
+        self.facts = list(facts)
+        self.fail = fail
+        self.queries = []
+
+    def _check(self):
+        if self.fail:
+            raise MemoryUnavailable("ollama down")
+
+    def remember(self, text):
+        self._check()
+        self.facts.append(text)
+        return MemoryFact("1", text, "2026-10-24T00:00:00+00:00")
+
+    def recall(self, query, limit=5):
+        self._check()
+        self.queries.append(query)
+        return [MemoryFact(str(i), f, "") for i, f in enumerate(self.facts)][:limit]
+
+    def forget(self, about):
+        self._check()
+        gone = [f for f in self.facts if about in f]
+        self.facts = [f for f in self.facts if f not in gone]
+        return [MemoryFact("1", f, "") for f in gone]
+
+    def all(self):
+        self._check()
+        return [MemoryFact(str(i), f, "") for i, f in enumerate(self.facts)]
+
+
+def test_recalled_facts_are_passed_as_context(gateway, notifier):
+    assistant = FakeAssistant(AssistantTurn("Te pongo rock."))
+    memory = FakeMemory(["A Ola le gusta el rock"])
+    service = make_service(assistant, gateway, notifier, memory=memory)
+
+    service.handle_order(voice("pon música"))
+
+    assert memory.queries == ["pon música"]
+    assert assistant.contexts == [["A Ola le gusta el rock"]]
+
+
+def test_remember_runs_in_the_hub_and_never_reaches_the_agent(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "remember", {"fact": "A Ola le gusta el rock"})]),
+        AssistantTurn("Anotado."),
+    )
+    memory = FakeMemory()
+    service = make_service(assistant, gateway, notifier, memory=memory)
+
+    service.handle_order(voice("recuerda que me gusta el rock"))
+
+    assert memory.facts == ["A Ola le gusta el rock"]
+    assert gateway.actions == []
+    _, results = assistant.calls[1]
+    assert results == [ToolResult("c1", "Saved: A Ola le gusta el rock")]
+    assert gateway.replies[-1].response_text == "Anotado."
+
+
+def test_forget_and_list_memories(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "forget", {"about": "rock"})]),
+        AssistantTurn("Olvidado."),
+        AssistantTurn("", [ToolCall("c2", "list_memories", {})]),
+        AssistantTurn("Sé que tienes un perro."),
+    )
+    memory = FakeMemory(["A Ola le gusta el rock", "Ola tiene un perro"])
+    service = make_service(assistant, gateway, notifier, memory=memory)
+
+    service.handle_order(voice("olvida lo del rock"))
+    service.handle_order(voice("¿qué sabes de mí?"))
+
+    assert assistant.calls[1][1] == [ToolResult("c1", "Deleted: A Ola le gusta el rock")]
+    assert assistant.calls[3][1] == [ToolResult("c2", "Ola tiene un perro")]
+
+
+def test_memory_down_still_answers(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "remember", {"fact": "x"})]),
+        AssistantTurn("Ahora no puedo guardarlo."),
+    )
+    service = make_service(assistant, gateway, notifier, memory=FakeMemory(fail=True))
+
+    service.handle_order(voice("recuerda x"))
+
+    assert assistant.contexts[0] == []  # recall failed quietly
+    [result] = assistant.calls[1][1]
+    assert result.is_error
+    assert gateway.replies[-1].status is Status.OK
+
+
+def test_memory_tools_without_memory_report_an_error(gateway, notifier):
+    assistant = FakeAssistant(
+        AssistantTurn("", [ToolCall("c1", "list_memories", {})]),
+        AssistantTurn("No tengo memoria activada."),
+    )
+    service = make_service(assistant, gateway, notifier)
+
+    service.handle_order(voice("¿qué sabes de mí?"))
+
+    [result] = assistant.calls[1][1]
+    assert result.is_error

@@ -5,15 +5,18 @@ from __future__ import annotations
 import logging
 import signal
 import sys
+import threading
 import time
 
 from pika.exceptions import AMQPError
 
 from paula_hub.adapters.outbound.alexa.notifier import AlexaNotifier, LogNotifier
+from paula_hub.adapters.outbound.memory.store import OllamaEmbedder, SqliteMemory
 from paula_hub.adapters.outbound.ollama.assistant import OllamaAssistant
 from paula_hub.adapters.rabbitmq import RabbitMqBroker
 from paula_hub.application.assistant_service import AssistantService
 from paula_hub.config.settings import Settings, SettingsError, log_dir, setup_logging
+from paula_hub.ports.outbound.memory import MemoryUnavailable
 
 log = logging.getLogger("paula_hub")
 
@@ -43,6 +46,24 @@ def main() -> int:
         if settings.alexa_notify_url
         else LogNotifier()
     )
+    memory = None
+    if settings.memory_embed_model.lower() != "off":
+        memory = SqliteMemory(
+            log_dir().parent / "memory.sqlite3",
+            OllamaEmbedder(
+                settings.ollama_url,
+                settings.memory_embed_model,
+                keep_alive=settings.ollama_keep_alive,
+            ),
+        )
+
+        def warm_up() -> None:
+            try:
+                memory.warm_up()
+            except MemoryUnavailable as exc:
+                log.warning("Memory model not ready: %s", exc)
+
+        threading.Thread(target=warm_up, name="memory-warm-up", daemon=True).start()
     service = AssistantService(
         OllamaAssistant(
             url=settings.ollama_url,
@@ -52,6 +73,7 @@ def main() -> int:
         ),
         broker,
         notifier,
+        memory=memory,
         long_task_seconds=settings.long_task_seconds,
     )
 

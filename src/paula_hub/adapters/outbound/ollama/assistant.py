@@ -13,6 +13,7 @@ from typing import Any
 
 from paula_hub.domain.commands import WHITELIST
 from paula_hub.domain.conversation import AssistantTurn, ToolCall, ToolResult
+from paula_hub.domain.memory import MEMORY_TOOLS
 from paula_hub.ports.outbound.assistant import AssistantError
 
 log = logging.getLogger(__name__)
@@ -37,7 +38,16 @@ something it covers; if no tool fits, say plainly that you cannot do it yet. Aft
 runs, tell Ola the outcome in one sentence. If a tool reports an error, explain it simply.
 Destructive tools are confirmed with Ola by the system before they run, so call them \
 directly when asked; do not ask for confirmation yourself.
+
+You have a long-term memory. When Ola asks you to remember something, or shares a \
+lasting fact about themself (likes, people, pets, dates, plans), call remember with \
+one short sentence in Spanish, then answer normally; mention the saving in a few words \
+at most. Call forget when Ola asks you to forget something, and list_memories when \
+Ola asks what you know about them. If a memory tool says nothing matched or failed, tell Ola so; never claim you saved or forgot something the tool did not confirm.
 """
+
+# Appended to the system prompt for one turn; facts are recalled by meaning.
+MEMORY_HEADER = "\nWhat you remember about Ola (use it when it helps; do not recite it):\n"
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -48,7 +58,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": spec.input_schema,
         },
     }
-    for spec in WHITELIST.values()
+    for spec in (*WHITELIST.values(), *MEMORY_TOOLS.values())
 ]
 
 Post = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -102,6 +112,12 @@ def _without_think(on_text: Callable[[str], None]) -> Callable[[str], None]:
     return feed
 
 
+def _system_prompt(context: Sequence[str]) -> str:
+    if not context:
+        return SYSTEM_PROMPT
+    return SYSTEM_PROMPT + MEMORY_HEADER + "\n".join(f"- {fact}" for fact in context)
+
+
 def _parse_args(raw: Any) -> dict[str, Any]:
     # Small models sometimes return the arguments as a JSON string.
     if isinstance(raw, str):
@@ -147,6 +163,7 @@ class OllamaAssistant:
         text: str | None = None,
         results: Sequence[ToolResult] = (),
         on_text: Callable[[str], None] | None = None,
+        context: Sequence[str] = (),
     ) -> AssistantTurn:
         if not text and not results:
             raise ValueError("send() needs text or tool results")
@@ -166,7 +183,7 @@ class OllamaAssistant:
 
         payload = {
             "model": self._model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *history],
+            "messages": [{"role": "system", "content": _system_prompt(context)}, *history],
             "tools": TOOLS,
             "stream": on_text is not None,
             "think": False,  # Paula has to answer fast

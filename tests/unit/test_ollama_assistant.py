@@ -34,8 +34,26 @@ def make(*outcomes):
     return OllamaAssistant(post=fake), fake
 
 
-def test_tools_cover_whitelist():
-    assert {t["function"]["name"] for t in TOOLS} == {"open_app", "system_status", "shutdown_pc"}
+def test_tools_cover_whitelist_and_memory():
+    assert {t["function"]["name"] for t in TOOLS} == {
+        "open_app",
+        "system_status",
+        "shutdown_pc",
+        "remember",
+        "forget",
+        "list_memories",
+    }
+
+
+def test_recalled_facts_go_to_the_system_prompt_only():
+    assistant, fake = make(reply("Te pongo rock."), reply("Hola."))
+
+    assistant.send("s", text="pon música", context=["A Ola le gusta el rock de los 80"])
+    assistant.send("s", text="hola")
+
+    first, second = (payload["messages"] for _, payload in fake.requests)
+    assert "- A Ola le gusta el rock de los 80" in first[0]["content"]
+    assert "rock de los 80" not in second[0]["content"]  # not kept in the history
 
 
 def test_text_reply_uses_qwen_without_thinking():

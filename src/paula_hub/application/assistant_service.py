@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from paula_hub.application.sentences import SentenceSplitter
 from paula_hub.domain.commands import get_command
 from paula_hub.domain.conversation import AssistantTurn, ToolCall, ToolResult
+from paula_hub.domain.memory import MEMORY_TOOLS
 from paula_hub.domain.messages import (
     Action,
     Alert,
@@ -24,6 +25,7 @@ from paula_hub.domain.messages import (
 )
 from paula_hub.ports.outbound.agent_gateway import AgentGatewayPort
 from paula_hub.ports.outbound.assistant import AssistantError, AssistantPort
+from paula_hub.ports.outbound.memory import MemoryPort, MemoryUnavailable
 from paula_hub.ports.outbound.notifier import NotifierPort
 
 log = logging.getLogger(__name__)
@@ -32,6 +34,7 @@ log = logging.getLogger(__name__)
 CONFIRM_YES = "Sí, confirmo"
 CONFIRM_NO = "No"
 MAX_TOOL_ROUNDS = 5
+RECALL_LIMIT = 5
 
 _CHANNELS = {
     Source.VOICE: Channel.PC,
@@ -68,6 +71,7 @@ class AssistantService:
         gateway: AgentGatewayPort,
         notifier: NotifierPort,
         *,
+        memory: MemoryPort | None = None,
         session_id: str = "default",
         long_task_seconds: float = 30.0,
         idle_reset_seconds: float = 900.0,
@@ -76,6 +80,7 @@ class AssistantService:
         self._assistant = assistant
         self._gateway = gateway
         self._notifier = notifier
+        self._memory = memory
         self._session_id = session_id
         self._long_task_seconds = long_task_seconds
         self._idle_reset_seconds = idle_reset_seconds
@@ -135,6 +140,7 @@ class AssistantService:
                 text=text,
                 results=results,
                 on_text=on_text if splitter else None,
+                context=self._recall(order.text),
             )
         except AssistantError:
             log.exception("Assistant failed for order %s", order.id)
@@ -144,6 +150,35 @@ class AssistantService:
             for sentence in splitter.flush():
                 self._send_partial(order, sentence)
         self._process(order, turn, round_)
+
+    def _recall(self, text: str) -> list[str]:
+        if self._memory is None or not text:
+            return []
+        try:
+            return [fact.text for fact in self._memory.recall(text, RECALL_LIMIT)]
+        except MemoryUnavailable:
+            # Paula still answers, just without what she remembers.
+            log.warning("Memory unavailable; answering without it", exc_info=True)
+            return []
+
+    def _run_memory_tool(self, call: ToolCall) -> ToolResult:
+        """Memory tools run here in the hub; the result goes straight back to the model."""
+        if self._memory is None:
+            return ToolResult(call.id, "Long-term memory is turned off.", is_error=True)
+        try:
+            if call.name == "remember":
+                fact = self._memory.remember(str(call.args.get("fact", "")))
+                return ToolResult(call.id, f"Saved: {fact.text}")
+            if call.name == "forget":
+                gone = self._memory.forget(str(call.args.get("about", "")))
+                if not gone:
+                    return ToolResult(call.id, "Nothing in memory matched that.")
+                return ToolResult(call.id, "Deleted: " + "; ".join(f.text for f in gone))
+            facts = self._memory.all()
+            return ToolResult(call.id, "\n".join(f.text for f in facts) or "Memory is empty.")
+        except (MemoryUnavailable, ValueError) as exc:
+            log.warning("Memory tool %s failed: %s", call.name, exc)
+            return ToolResult(call.id, f"Memory is not available right now: {exc}", True)
 
     @staticmethod
     def _speaks(order: Order) -> bool:
@@ -181,6 +216,9 @@ class AssistantService:
             return
 
         for call in state.calls:
+            if call.name in MEMORY_TOOLS:
+                state.results[call.id] = self._run_memory_tool(call)
+                continue
             spec = get_command(call.name)
             if spec is None:
                 state.results[call.id] = ToolResult(
