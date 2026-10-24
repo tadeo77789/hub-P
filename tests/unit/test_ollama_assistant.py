@@ -59,6 +59,20 @@ def test_think_tags_are_stripped():
     assert assistant.send("s", text="hola").text == "Listo."
 
 
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("Hola, Ola.", "Hola, Ola."),
+        ("<think>a</think>Hola<think>b</think> Ola", "Hola Ola"),
+        ("Hola <think>x</think>Ola", "Hola Ola"),
+    ],
+)
+def test_think_blocks_never_eat_visible_text(content, expected):
+    assistant, _ = make(reply(content))
+
+    assert assistant.send("s", text="hola").text == expected
+
+
 def test_reasoning_without_opening_tag_is_stripped():
     assistant, _ = make(reply("Okay, Ola says hello.\n</think>\n\n¡Hola!"))
 

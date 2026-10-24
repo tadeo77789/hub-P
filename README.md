@@ -27,7 +27,7 @@ Dependency rule: `adapters → application / ports → domain`. `domain/` never 
 Requires Python 3.11+, RabbitMQ and [Ollama](https://ollama.com) with the model pulled.
 
 ```bash
-ollama pull qwen3:4b-instruct          # about 2.5 GB, runs on the GPU
+ollama pull qwen3:4b-instruct   # about 2.5 GB, runs on the GPU
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
