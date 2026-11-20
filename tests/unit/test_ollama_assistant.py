@@ -1,6 +1,12 @@
 import pytest
 
-from paula_hub.adapters.outbound.ollama.assistant import SYSTEM_PROMPT, TOOLS, OllamaAssistant
+from paula_hub.adapters.outbound.ollama.assistant import (
+    RULES,
+    TOOLS,
+    OllamaAssistant,
+    system_prompt,
+)
+from paula_hub.adapters.outbound.ollama.personality import DEFAULT_PERSONALITY
 from paula_hub.domain.conversation import ToolResult
 from paula_hub.ports.outbound.assistant import AssistantError
 
@@ -53,7 +59,9 @@ def test_recalled_facts_go_in_a_note_before_the_latest_message_only():
     assistant.send("s", text="hola")
 
     first, second = (payload["messages"] for _, payload in fake.requests)
-    assert first[0]["content"] == SYSTEM_PROMPT  # fixed, so the prompt cache holds
+    assert first[0]["content"] == system_prompt(
+        DEFAULT_PERSONALITY
+    )  # fixed, so the prompt cache holds
     assert first[1]["role"] == "system"
     assert "- A Ola le gusta el rock de los 80" in first[1]["content"]
     assert first[2] == {"role": "user", "content": "pon música"}
@@ -245,7 +253,7 @@ def test_passages_go_in_the_note_and_context_is_larger():
 
     _, payload = fake.requests[0]
     assert "Puertos y adaptadores" in payload["messages"][1]["content"]
-    assert payload["messages"][0]["content"] == SYSTEM_PROMPT
+    assert payload["messages"][0]["content"] == system_prompt(DEFAULT_PERSONALITY)
     assert payload["options"]["num_ctx"] == 6144
 
 
@@ -278,3 +286,17 @@ def test_send_trims_old_turns_and_keeps_the_checkpoint_valid():
     assert messages[1]["role"] == "user"
     assert sum(len(m["content"]) for m in messages[1:]) <= 2000 + 500
     assert assistant._checkpoints["s"] <= len(assistant._histories["s"])
+
+
+def test_personality_goes_first_and_the_rules_always_follow():
+    personality = ["Eres Paula, bromista."]
+    fake = FakeOllama(reply("Hola."), reply("Buenas."))
+    assistant = OllamaAssistant(post=fake, personality=lambda: personality[0])
+
+    assistant.send("s", text="hola")
+    personality[0] = "Eres Paula, muy formal."
+    assistant.send("s", text="hola otra vez")
+
+    first, second = (payload["messages"][0]["content"] for _, payload in fake.requests)
+    assert first.startswith("Eres Paula, bromista.") and first.endswith(RULES)
+    assert second.startswith("Eres Paula, muy formal.") and second.endswith(RULES)

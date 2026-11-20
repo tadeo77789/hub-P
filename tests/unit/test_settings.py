@@ -15,6 +15,7 @@ def no_dotenv(monkeypatch):
         "RABBITMQ_URL",
         "LOG_LEVEL",
         "LONG_TASK_SECONDS",
+        "PERSONALITY_FILE",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -35,6 +36,7 @@ def test_defaults(monkeypatch):
     assert settings.ollama_url == "http://localhost:11434"
     assert settings.alexa_notify_url == ""
     assert settings.rabbitmq_url.startswith("amqp://")
+    assert settings.personality_file.endswith("personalidad.txt")
 
 
 def test_empty_values_use_defaults(monkeypatch):
