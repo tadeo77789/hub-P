@@ -1,0 +1,19 @@
+# SearXNG settings for Paula: SearXNG's defaults plus the JSON API the hub calls.
+# https://docs.searxng.org/admin/settings/index.html
+use_default_settings: true
+
+general:
+  instance_name: "Paula"
+
+search:
+  safe_search: 1
+  default_lang: "es"
+  # The hub reads results as JSON; SearXNG only serves HTML unless json is listed.
+  formats:
+    - html
+    - json
+
+server:
+  # Only the hub on this PC calls it, so the bot limiter (which needs Redis) is off.
+  limiter: false
+  image_proxy: false

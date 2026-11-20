@@ -1,5 +1,5 @@
-# Local RabbitMQ for Paula Port. Ports bind to localhost only: nothing is exposed
-# to the network; remote access goes through Tailscale.
+# Local RabbitMQ and SearXNG (web search) for Paula Port. Ports bind to localhost only:
+# nothing is exposed to the network; remote access goes through Tailscale.
 #   docker compose -f deploy/docker-compose.yml up -d
 services:
   rabbitmq:
@@ -14,6 +14,22 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-paula}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: paula-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${SEARXNG_PORT:-8888}:8080"
+    environment:
+      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8888}/
+      # Not a real secret: it signs SearXNG's preference cookies, and the port is
+      # localhost only. Set SEARXNG_SECRET to override it.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-paula-local-searxng}
+    volumes:
+      # The whole folder, as the SearXNG docs do: its entrypoint writes files next to
+      # settings.yml on first start (ignored by deploy/searxng/.gitignore).
+      - ./searxng:/etc/searxng
 
 volumes:
   rabbitmq-data:

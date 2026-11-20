@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 from paula_hub.adapters.outbound.memory.store import DEFAULT_EMBED_MODEL
 from paula_hub.adapters.outbound.ollama.assistant import DEFAULT_MODEL, DEFAULT_URL
+from paula_hub.adapters.outbound.searxng.search import DEFAULT_URL as DEFAULT_SEARCH_URL
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -65,6 +66,7 @@ class Settings:
     memory_embed_model: str
     knowledge_dir: str
     personality_file: str
+    web_search_url: str
     ollama_num_ctx: int
     alexa_notify_url: str
     alexa_notify_secret: str
@@ -109,6 +111,8 @@ class Settings:
             # "off" turns the knowledge base off.
             knowledge_dir=os.environ.get("KNOWLEDGE_DIR") or str(default_knowledge_dir()),
             personality_file=os.environ.get("PERSONALITY_FILE") or str(default_personality_file()),
+            # "off" turns web search off.
+            web_search_url=os.environ.get("WEB_SEARCH_URL", "").strip() or DEFAULT_SEARCH_URL,
             ollama_num_ctx=ollama_num_ctx,
             alexa_notify_url=alexa_url,
             alexa_notify_secret=alexa_secret,

@@ -49,6 +49,7 @@ def test_tools_cover_whitelist_and_memory():
         "forget",
         "list_memories",
         "learn",
+        "search_web",
     }
 
 

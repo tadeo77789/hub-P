@@ -33,7 +33,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 cp .env.example .env            # then fill in the keys
-docker compose -f deploy/docker-compose.yml up -d   # RabbitMQ on localhost
+docker compose -f deploy/docker-compose.yml up -d   # RabbitMQ and SearXNG on localhost
 pytest                          # integration tests run when RabbitMQ is reachable
 python -m paula_hub             # start the hub
 ```
@@ -48,6 +48,7 @@ Start at logon: `powershell -ExecutionPolicy Bypass -File scripts\install-startu
 - **Long-term memory.** Qwen can call `remember`, `forget` and `list_memories` (they run in the hub, never on the PC agent). Facts are short Spanish sentences stored with their embedding (`qwen3-embedding:0.6b`) in `%LOCALAPPDATA%\PaulaPort\memory.sqlite3`. Before each answer the hub recalls up to 5 related facts by meaning and adds them to the system prompt for that turn only. `MEMORY_EMBED_MODEL=off` disables it; if Ollama cannot embed, Paula answers without memory.
 - **Knowledge base.** Drop `.md`, `.txt` or `.pdf` files into `KNOWLEDGE_DIR` (default `Documents\Paula\Conocimiento`). Every minute the hub indexes new or changed files (Markdown-aware passages of ~900 characters, embedded with the same model) and drops removed ones, in `%LOCALAPPDATA%\PaulaPort\knowledge.sqlite3`. Up to 3 related passages go in the note before each question. Saying "apréndete esto: …" makes Qwen call `learn`, which writes a note to `notas de Paula/` and indexes it. `KNOWLEDGE_DIR=off` disables it.
 - **Personality.** Paula's personality lives in `PERSONALITY_FILE` (default `Documents\Paula\personalidad.txt`, created with a Spanish default on first run). Edit it in your own words; it applies from the next question, no restart. Fixed rules (short spoken replies, tools, memory) are always appended after it, so an edit cannot break them. An empty or unreadable file falls back to the default; only the first 4,000 characters are used.
+- **Web search.** Qwen can call `search_web`, which runs in the hub against a local SearXNG (`paula-searxng` in `deploy/docker-compose.yml`, `http://127.0.0.1:8888`, JSON API on, no account or key). Up to 5 results (title, site, a 300-character snippet) go back to the model as reference material, and Paula answers naming the site. `WEB_SEARCH_URL=off` disables it; if SearXNG is down, Paula says the search failed.
 - Tool calls become signed `Action` messages on `agent.actions`. Destructive ones (`shutdown_pc`) first return a `question` result with Yes / No options and only run after a `confirm` order.
 - The agent reports each action on `hub.events`; the core feeds the outcome back to the model and replies on `agent.results`.
 - Actions that take longer than `LONG_TASK_SECONDS`, and replies to Alexa orders, also go to Alexa (`alexa-skill/`).

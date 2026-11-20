@@ -16,6 +16,7 @@ from paula_hub.adapters.outbound.memory.knowledge import FolderKnowledge
 from paula_hub.adapters.outbound.memory.store import OllamaEmbedder, SqliteMemory
 from paula_hub.adapters.outbound.ollama.assistant import OllamaAssistant
 from paula_hub.adapters.outbound.ollama.personality import PersonalityFile
+from paula_hub.adapters.outbound.searxng.search import SearxngSearch
 from paula_hub.adapters.rabbitmq import RabbitMqBroker
 from paula_hub.application.assistant_service import AssistantService
 from paula_hub.config.settings import Settings, SettingsError, log_dir, setup_logging
@@ -110,6 +111,11 @@ def main() -> int:
         notifier,
         memory=memory,
         knowledge=knowledge,
+        web_search=(
+            None
+            if settings.web_search_url.lower() == "off"
+            else SearxngSearch(settings.web_search_url)
+        ),
         long_task_seconds=settings.long_task_seconds,
     )
 
