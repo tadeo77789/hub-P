@@ -16,6 +16,7 @@ def no_dotenv(monkeypatch):
         "LOG_LEVEL",
         "LONG_TASK_SECONDS",
         "PERSONALITY_FILE",
+        "WEB_SEARCH_URL",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -37,6 +38,7 @@ def test_defaults(monkeypatch):
     assert settings.alexa_notify_url == ""
     assert settings.rabbitmq_url.startswith("amqp://")
     assert settings.personality_file.endswith("personalidad.txt")
+    assert settings.web_search_url == "http://127.0.0.1:8888"
 
 
 def test_empty_values_use_defaults(monkeypatch):
@@ -69,3 +71,10 @@ def test_alexa_needs_its_own_secret(monkeypatch):
         Settings.from_env()
     monkeypatch.setenv("ALEXA_NOTIFY_SECRET", "y" * 32)
     assert Settings.from_env().alexa_notify_secret == "y" * 32
+
+
+def test_web_search_url_override_is_trimmed(monkeypatch):
+    monkeypatch.setenv("AGENT_SHARED_SECRET", "x" * 32)
+    monkeypatch.setenv("WEB_SEARCH_URL", " off ")
+
+    assert Settings.from_env().web_search_url == "off"

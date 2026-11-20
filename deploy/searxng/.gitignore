@@ -1,0 +1,4 @@
+# SearXNG writes its own files here on first start; only our settings are tracked.
+*
+!.gitignore
+!settings.yml
