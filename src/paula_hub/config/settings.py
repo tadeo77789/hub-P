@@ -32,6 +32,11 @@ def default_knowledge_dir() -> Path:
     )
 
 
+def default_personality_file() -> Path:
+    """Next to the knowledge folder, so the user finds both in Documents\\Paula."""
+    return default_knowledge_dir().parent / "personalidad.txt"
+
+
 def setup_logging(level: str, name: str) -> None:
     """Log to a rotating file (pythonw at logon has no console) and to stderr if present."""
     log_dir().mkdir(parents=True, exist_ok=True)
@@ -59,6 +64,7 @@ class Settings:
     ollama_keep_alive: str
     memory_embed_model: str
     knowledge_dir: str
+    personality_file: str
     ollama_num_ctx: int
     alexa_notify_url: str
     alexa_notify_secret: str
@@ -102,6 +108,7 @@ class Settings:
             memory_embed_model=os.environ.get("MEMORY_EMBED_MODEL") or DEFAULT_EMBED_MODEL,
             # "off" turns the knowledge base off.
             knowledge_dir=os.environ.get("KNOWLEDGE_DIR") or str(default_knowledge_dir()),
+            personality_file=os.environ.get("PERSONALITY_FILE") or str(default_personality_file()),
             ollama_num_ctx=ollama_num_ctx,
             alexa_notify_url=alexa_url,
             alexa_notify_secret=alexa_secret,

@@ -15,6 +15,7 @@ from paula_hub.adapters.outbound.alexa.notifier import AlexaNotifier, LogNotifie
 from paula_hub.adapters.outbound.memory.knowledge import FolderKnowledge
 from paula_hub.adapters.outbound.memory.store import OllamaEmbedder, SqliteMemory
 from paula_hub.adapters.outbound.ollama.assistant import OllamaAssistant
+from paula_hub.adapters.outbound.ollama.personality import PersonalityFile
 from paula_hub.adapters.rabbitmq import RabbitMqBroker
 from paula_hub.application.assistant_service import AssistantService
 from paula_hub.config.settings import Settings, SettingsError, log_dir, setup_logging
@@ -103,6 +104,7 @@ def main() -> int:
             timeout=settings.ollama_timeout,
             keep_alive=settings.ollama_keep_alive,
             num_ctx=settings.ollama_num_ctx,
+            personality=PersonalityFile(Path(settings.personality_file)),
         ),
         broker,
         notifier,

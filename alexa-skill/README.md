@@ -16,7 +16,7 @@ hub (AlexaNotifier) ──signed POST──▶ Lambda Function URL ──Proacti
    - `ALEXA_CLIENT_ID`, `ALEXA_CLIENT_SECRET`: from step 2
    - `ALEXA_EVENTS_STAGE`: `development` while testing, `live` after certification
 4. **Function URL.** Enable a Function URL (auth type `NONE`; the request signature is the authentication) and put it in the hub `.env` as `ALEXA_NOTIFY_URL`.
-5. **Enable the skill** on Ola's Alexa account and accept the notifications permission in the Alexa app.
+5. **Enable the skill** on Alejandro's Alexa account and accept the notifications permission in the Alexa app.
 
 ## Notes
 
