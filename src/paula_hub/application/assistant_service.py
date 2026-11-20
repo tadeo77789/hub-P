@@ -221,7 +221,7 @@ class AssistantService:
                     return ToolResult(
                         call.id,
                         f"Nothing deleted: {len(many.candidates)} facts match ({listed}). "
-                        "Ask Ola which one, then call forget with that fact's exact text.",
+                        "Ask Alejandro which one, then call forget with that fact's exact text.",
                     )
                 if not gone:
                     return ToolResult(call.id, "Nothing in memory matched that.")

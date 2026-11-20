@@ -2,7 +2,7 @@
 
 Each fact is stored with its embedding (a vector that captures its meaning). Recall
 embeds the question and returns the facts whose vectors point the same way (cosine
-similarity), so "¿qué música me gusta?" finds "A Ola le gusta el rock de los 80".
+similarity), so "¿qué música me gusta?" finds "A Alejandro le gusta el rock de los 80".
 A few hundred facts are compared in plain Python in milliseconds.
 """
 
@@ -47,7 +47,7 @@ MAX_FORGET = 2
 # a near-identical fact replaces an old one; corrections go through forget + remember.
 DUPLICATE_SIMILARITY = 0.98
 MAX_FACT_CHARS = 300
-# Words too common in facts to identify one ("A Ola le gusta...").
+# Words too common in facts to identify one ("A Alejandro le gusta...").
 STOP_WORDS = frozenset(
     [
         "gusta",
@@ -82,6 +82,7 @@ STOP_WORDS = frozenset(
         "poco",
         "siempre",
         "nunca",
+        "alejandro",  # the user's name is in most facts
     ]
 )
 

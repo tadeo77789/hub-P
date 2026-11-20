@@ -27,7 +27,7 @@ MEMORY_TOOLS: dict[str, CommandSpec] = {
                 "Save one lasting fact about the user in long-term memory: preferences, "
                 "people and pets, important dates, plans, how they like things done. "
                 "`fact` is one short self-contained sentence in Spanish about the user, "
-                "for example 'A Ola le gusta el rock de los 80'. Use it when the user asks "
+                "for example 'A Alejandro le gusta el rock de los 80'. Use it when the user asks "
                 "you to remember something or shares something worth knowing later. Do not "
                 "save small talk, questions or things that only matter right now."
             ),

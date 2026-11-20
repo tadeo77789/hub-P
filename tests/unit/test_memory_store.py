@@ -164,3 +164,16 @@ def test_database_errors_become_memory_unavailable(memory):
 
     with pytest.raises(MemoryUnavailable):
         memory.all()
+
+
+def test_the_users_name_alone_matches_no_fact_by_keyword(memory):
+    # The name is in most facts, so as a keyword it would match them all.
+    for fact in (
+        "Alejandro tiene un perro",
+        "A Alejandro le gusta el rock",
+        "Alejandro va al dentista",
+    ):
+        memory.remember(fact)
+
+    assert memory.forget("Alejandro") == []
+    assert len(memory.all()) == 3
